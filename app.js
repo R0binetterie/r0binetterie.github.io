@@ -6,8 +6,8 @@ let stockData         = null;
 let priceData         = {};
 let excludedCountries = new Set();
 let recomputeTimer    = null;
-let departMode        = 'now';   // 'now' ou 'custom'
-let departCustomTime  = null;    // string "HH:MM"
+let departMode        = 'now';
+let departCustomTime  = null;
 
 /* ── Init ──────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,10 +15,25 @@ document.addEventListener('DOMContentLoaded', () => {
   updateCapacity();
   updateFlightLabel();
   setDepartNow();
+
   const savedKey = sessionStorage.getItem('tornKey');
   if (savedKey) {
     document.getElementById('apiKey').value = savedKey;
     document.getElementById('keyStatus').textContent = '✓ enregistrée';
+  }
+
+  /* Charger le cache YATA depuis localStorage */
+  const cached = localStorage.getItem('yataCache');
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      const ageMin = (Date.now() / 1000 - parsed.timestamp) / 60;
+      stockData = parsed;
+      document.getElementById('lastFetchInfo').textContent =
+        'Cache YATA (' + Math.round(ageMin) + ' min)';
+      setBanner('info', '📦 Données YATA en cache (' + Math.round(ageMin) + ' min). Clique "Actualiser YATA" pour rafraîchir.');
+      compute();
+    } catch(e) { localStorage.removeItem('yataCache'); }
   }
 });
 
@@ -56,15 +71,15 @@ function fmtHour(ts) {
 
 /* ── Slider longueur de vol ────────────────────────────────────── */
 function updateFlightLabel() {
-  const v = parseInt(document.getElementById('minFlightTime').value);
-  const lbl = document.getElementById('minFlightLabel');
+  const v   = parseInt(document.getElementById('minFlightTime').value);
+  const lbl  = document.getElementById('minFlightLabel');
   const hint = document.getElementById('minFlightHint');
   if (v === 0) {
-    lbl.textContent = 'Tous';
+    lbl.textContent  = 'Tous';
     hint.textContent = 'Toutes les destinations incluses.';
   } else {
-    const h = Math.floor(v / 60);
-    const m = v % 60;
+    const h   = Math.floor(v / 60);
+    const m   = v % 60;
     const str = h > 0 ? `${h}h${m > 0 ? m + 'min' : ''}` : `${m}min`;
     lbl.textContent = str + ' min';
     const dest = COUNTRIES.filter(c => c.timeMin.airstrip >= v);
@@ -146,15 +161,26 @@ async function fetchAndCompute() {
     const resp = await fetch('https://yata.yt/api/v1/travel/export/');
     if (resp.ok) {
       stockData = await resp.json();
+      /* Mise en cache localStorage */
+      localStorage.setItem('yataCache', JSON.stringify(stockData));
       document.getElementById('lastFetchInfo').textContent =
         'YATA ' + timeAgo(stockData.timestamp);
-      setBanner('info', '✅ Stocks YATA chargés — fraîcheur variable par pays.');
+      setBanner('info', '✅ Stocks YATA chargés et mis en cache.');
     } else throw new Error('HTTP ' + resp.status);
   } catch (e) {
-    stockData = {};
-    setBanner('warn', '⚠️ Stocks YATA indisponibles (CORS). Calcul sur prix historiques.');
+    /* Essai depuis le cache si fetch échoue */
+    const cached = localStorage.getItem('yataCache');
+    if (cached) {
+      stockData = JSON.parse(cached);
+      const ageMin = Math.round((Date.now() / 1000 - stockData.timestamp) / 60);
+      setBanner('warn', `⚠️ YATA inaccessible (CORS). Utilisation du cache (${ageMin} min).`);
+    } else {
+      stockData = {};
+      setBanner('warn', '⚠️ YATA inaccessible et pas de cache. Calcul sur prix historiques.');
+    }
   }
 
+  /* Fetch prix marché (rapide, optionnel) */
   const key = sessionStorage.getItem('tornKey');
   if (key) {
     try {
@@ -173,27 +199,27 @@ async function fetchAndCompute() {
 
 /* ── Calcul principal ──────────────────────────────────────────── */
 function compute() {
-  const mode       = document.getElementById('flightMode').value;
-  const sessionMin = parseInt(document.getElementById('sessionHours').value) * 60;
-  const budgetCap  = parseInt(document.getElementById('travelBudget').value) || 0;
-  const freshMax   = parseFloat(document.getElementById('freshnessFilter').value);
-  const minFlight  = parseInt(document.getElementById('minFlightTime').value) || 0;
+  const mode            = document.getElementById('flightMode').value;
+  const sessionMin      = parseInt(document.getElementById('sessionHours').value) * 60;
+  const budgetCap       = parseInt(document.getElementById('travelBudget').value) || 0;
+  const freshMax        = parseFloat(document.getElementById('freshnessFilter').value);
+  const minFlight       = parseInt(document.getElementById('minFlightTime').value) || 0;
   const maxTripsAllowed = parseInt(document.getElementById('maxTrips').value) || 999;
-  const wantPlush  = document.getElementById('f_plushie').checked;
-  const wantFlower = document.getElementById('f_flower').checked;
-  const wantDrug   = document.getElementById('f_drug').checked;
+  const wantPlush       = document.getElementById('f_plushie').checked;
+  const wantFlower      = document.getElementById('f_flower').checked;
+  const wantDrug        = document.getElementById('f_drug').checked;
 
-  const now        = Date.now() / 1000;
-  const departTs   = getDepartTimestamp();
-  const runs       = [];
+  const now      = Date.now() / 1000;
+  const departTs = getDepartTimestamp();
+  const runs     = [];
 
   COUNTRIES.forEach(country => {
     if (excludedCountries.has(country.code)) return;
 
-    const tOneWay  = country.timeMin[mode];
+    const tOneWay = country.timeMin[mode];
     if (tOneWay < minFlight) return;
 
-    const tripMin  = tOneWay * 2 + 5;
+    const tripMin = tOneWay * 2 + 5;
     if (tripMin > sessionMin) return;
 
     const maxTrips = Math.min(Math.floor(sessionMin / tripMin), maxTripsAllowed);
@@ -212,7 +238,7 @@ function compute() {
     }
 
     const availableItems = ITEMS.filter(item => {
-      if (item.country !== country.code) return false;
+      if (item.country !== country.code)       return false;
       if (item.type === 'plushie' && !wantPlush) return false;
       if (item.type === 'flower'  && !wantFlower) return false;
       if (item.type === 'drug'    && !wantDrug)   return false;
@@ -235,11 +261,11 @@ function compute() {
 
     allItems.forEach(item => {
       if (remainingSlots <= 0) return;
-      const cap = getCapacityForType(item.type);
+      const cap        = getCapacityForType(item.type);
       const bonusSlots = cap - getBaseCapacity();
-      const slotsForItem = Math.min(remainingSlots + bonusSlots, cap);
-      if (slotsForItem <= 0) return;
-      const qty = Math.min(5, slotsForItem);
+      const slots      = Math.min(remainingSlots + bonusSlots, cap);
+      if (slots <= 0) return;
+      const qty = Math.min(5, slots);
 
       let stockProba;
       if (!lastUpdate) {
@@ -251,11 +277,10 @@ function compute() {
       }
 
       breakdown.push({
-        ...item,
-        qty,
-        stockProba,
+        ...item, qty, stockProba,
         grossProfit:    item.unitProfit * qty,
         adjustedProfit: item.unitProfit * qty * stockProba,
+        yataQty:        yataQty[item.id] ?? null,
       });
       remainingSlots -= qty;
     });
@@ -270,10 +295,10 @@ function compute() {
 
     /* Timeline des trips */
     const trips = Array.from({ length: maxTrips }, (_, i) => {
-      const startTs   = departTs + i * tripMin * 60;
-      const arriveTs  = startTs + tOneWay * 60;
-      const returnTs  = arriveTs + 5 * 60;
-      const landTs    = returnTs + tOneWay * 60;
+      const startTs  = departTs + i * tripMin * 60;
+      const arriveTs = startTs + tOneWay * 60;
+      const returnTs = arriveTs + 5 * 60;
+      const landTs   = returnTs + tOneWay * 60;
       return { startTs, arriveTs, returnTs, landTs };
     });
 
@@ -312,18 +337,21 @@ function renderResults(runs, mode) {
   document.getElementById('s_bestTrips').textContent   = best.maxTrips + 'x';
   document.getElementById('s_bestPerHour').textContent = '$' + fmt(best.profitPerHour) + '/h';
 
+  /* Stocker les runs pour la modal */
+  window._runs = runs;
+
   runs.slice(0, 8).forEach((run, i) => runList.appendChild(buildRunCard(run, i, mode)));
 
   if (runs.length > 8) {
     const more = document.createElement('p');
     more.style.cssText = 'text-align:center;color:var(--text3);font-size:12px;padding:.5rem';
-    more.textContent   = `+ ${runs.length - 8} autres destinations calculées`;
+    more.textContent   = `+ ${runs.length - 8} autres destinations`;
     runList.appendChild(more);
   }
 }
 
 function buildRunCard(run, rank, mode) {
-  const isBest = rank === 0;
+  const isBest    = rank === 0;
   const modeLabel = { standard: 'Standard', airstrip: 'Airstrip', wlt: 'WLT/BC' }[mode];
 
   const freshnessChip = run.lastUpdate
@@ -333,7 +361,7 @@ function buildRunCard(run, rank, mode) {
   const itemsHTML = run.breakdown.map(b => {
     const color    = TYPE_COLORS[b.type] || '#888';
     const probaStr = Math.round(b.stockProba * 100) + '%';
-    return `<span class="item-chip" title="Proba stock: ${probaStr}">
+    return `<span class="item-chip">
       <span class="dot" style="background:${color}"></span>
       <span>${b.name} ×${b.qty}</span>
       <span class="gain">+$${fmt(b.grossProfit)}</span>
@@ -341,10 +369,8 @@ function buildRunCard(run, rank, mode) {
     </span>`;
   }).join('');
 
-  /* Mini-timeline textuelle */
   const firstTrip = run.trips[0];
-  const lastTrip  = run.trips[run.trips.length - 1];
-  const tlText    = `Départ ${fmtHour(firstTrip.startTs)} → Arrivée ${fmtHour(firstTrip.arriveTs)} → Retour ${fmtHour(firstTrip.returnTs)} → Atterrissage ${fmtHour(firstTrip.landTs)}`;
+  const tlPreview = `Départ ${fmtHour(firstTrip.startTs)} → Arrivée ${fmtHour(firstTrip.arriveTs)} → Retour ${fmtHour(firstTrip.landTs)}`;
 
   const card = document.createElement('div');
   card.className = 'run-card' + (isBest ? ' best' : '');
@@ -368,9 +394,7 @@ function buildRunCard(run, rank, mode) {
         <div class="profit-sub">profit total estimé</div>
       </div>
     </div>
-
     <hr class="run-divider" />
-
     <div class="run-profit-row">
       <div class="prow-item">
         <div class="prow-label">Par trip (brut)</div>
@@ -389,29 +413,21 @@ function buildRunCard(run, rank, mode) {
         <div class="prow-val" style="color:var(--text2)">$${fmt(run.travelCost * 2)}</div>
       </div>
     </div>
-
     <div class="items-grid">${itemsHTML}</div>
-
     <button class="btn-timeline" onclick="openTimeline(${rank})">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      Voir la timeline des stocks — ${tlText}
+      Timeline — ${tlPreview}
     </button>
   `;
-  card._runData = run;
   return card;
 }
 
 /* ── Timeline modal ─────────────────────────────────────────────── */
-let currentRuns = [];
-
 function openTimeline(rank) {
-  const cards = document.querySelectorAll('.run-card');
-  const run   = cards[rank]._runData;
+  const run = window._runs?.[rank];
   if (!run) return;
-
   document.getElementById('modalTitle').textContent =
     run.country.flag + ' ' + run.country.name + ' — Timeline des stocks';
-
   document.getElementById('modalContent').innerHTML = buildTimelineHTML(run);
   document.getElementById('timelineModal').style.display = 'flex';
 }
@@ -426,146 +442,151 @@ function buildTimelineHTML(run) {
   const departTs   = run.departTs;
   const endTs      = departTs + sessionMin * 60;
   const totalSec   = endTs - departTs;
+  const chartH     = 140;
 
-  /* Événements */
-  const events = [];
+  /* ── Modèle de stock ────────────────────────────────────────────
+     On part du stock YATA au moment "now", puis :
+     - décroissance linéaire (joueurs qui achètent)
+     - restock instantané à chaque tick de 15 min (quantité fixe Torn : 2500)
+     Le stock est plafonné à 2500.
+  ──────────────────────────────────────────────────────────────── */
+  const mainItem    = run.breakdown[0];
+  const RESTOCK_QTY = 2500;
+  const DECAY_RATE  = 8;    /* items perdus par minute (estimation moyenne) */
+
+  /* Stock initial = donnée YATA si dispo, sinon 50% */
+  const yataInit = (mainItem?.yataQty != null) ? mainItem.yataQty : 1250;
+
+  /* Générer points toutes les 2 min */
+  const STEP = 2 * 60; /* secondes */
+  const points = [];
+  let curStock = yataInit;
+  let prevTickMin = Math.floor(departTs / (15 * 60)) * 15 * 60; /* dernier tick avant départ */
+
+  for (let t = departTs; t <= endTs; t += STEP) {
+    /* Ticks de restock passés depuis le dernier point */
+    let nextTick = prevTickMin + 15 * 60;
+    while (nextTick <= t) {
+      curStock = Math.min(RESTOCK_QTY, curStock + RESTOCK_QTY);
+      prevTickMin = nextTick;
+      nextTick += 15 * 60;
+    }
+    curStock = Math.max(0, curStock - DECAY_RATE * (STEP / 60));
+    points.push({ ts: t, qty: curStock });
+  }
+
+  /* ── SVG chemin ─────────────────────────────────────────────── */
+  function tsToX(ts) { return ((ts - departTs) / totalSec * 100).toFixed(2); }
+  function qtyToY(q) { return (chartH - (q / RESTOCK_QTY) * chartH).toFixed(2); }
+
+  /* Courbe principale */
+  const pathD = points.map((p, i) =>
+    `${i === 0 ? 'M' : 'L'}${tsToX(p.ts)},${qtyToY(p.qty)}`
+  ).join(' ');
+  const fillD = pathD + ` L100,${chartH} L0,${chartH} Z`;
+
+  /* Ticks de restock (lignes verticales grises) */
+  const tickLines = [];
+  let tk = Math.ceil(departTs / (15 * 60)) * 15 * 60;
+  while (tk <= endTs) {
+    const x = tsToX(tk);
+    tickLines.push(`<line x1="${x}" y1="0" x2="${x}" y2="${chartH}" stroke="rgba(255,255,255,0.06)" stroke-width="0.8"/>`);
+    tk += 15 * 60;
+  }
+
+  /* Événements (arrivée = rouge, départ retour = orange, atterrissage = violet) */
+  const evColors = { arrive: '#ef4444', return_dep: '#f59e0b', land: '#a78bfa', depart: '#4f7ef8' };
+  const evLines  = [];
+  const evLabels = [];
+
   run.trips.forEach((t, i) => {
-    events.push({ ts: t.startTs,  type: 'depart',  label: `Départ T${i+1}` });
-    events.push({ ts: t.arriveTs, type: 'arrive',  label: `Arrivée T${i+1}` });
-    events.push({ ts: t.returnTs, type: 'return',  label: `Décollage retour T${i+1}` });
-    events.push({ ts: t.landTs,   type: 'land',    label: `Atterrissage T${i+1}` });
+    const evs = [
+      { ts: t.startTs,  color: evColors.depart,     label: `T${i+1} Départ` },
+      { ts: t.arriveTs, color: evColors.arrive,      label: `T${i+1} Arrivée` },
+      { ts: t.returnTs, color: evColors.return_dep,  label: `T${i+1} Décollage retour` },
+      { ts: t.landTs,   color: evColors.land,        label: `T${i+1} Atterrissage` },
+    ];
+    evs.forEach(ev => {
+      if (ev.ts < departTs || ev.ts > endTs) return;
+      const x = tsToX(ev.ts);
+      evLines.push(`<line x1="${x}" y1="0" x2="${x}" y2="${chartH}" stroke="${ev.color}" stroke-width="1.2" stroke-dasharray="${ev.color === evColors.arrive ? 'none' : '4,3'}"/>`);
+      evLabels.push({ x: parseFloat(x), color: ev.color, label: ev.label, time: fmtHour(ev.ts) });
+    });
   });
 
-  /* Ticks de restock toutes les 15 min */
-  const ticks = [];
-  let tickTs = departTs - (departTs % (15 * 60)) + 15 * 60;
-  while (tickTs < endTs) {
-    ticks.push(tickTs);
-    tickTs += 15 * 60;
-  }
+  /* Légende événements */
+  const legendHTML = evLabels.map(e =>
+    `<span class="tl-legend-item">
+      <span style="display:inline-block;width:12px;height:2px;background:${e.color};vertical-align:middle;margin-right:5px;border-radius:1px"></span>
+      ${e.label} <span style="color:var(--text3);margin-left:3px">${e.time}</span>
+    </span>`
+  ).join('');
 
-  /* Calcul du stock estimé au fil du temps
-     On part du stock YATA (si dispo), et on estime :
-     - diminution progressive pendant les fenêtres où les joueurs arrivent
-     - restock à chaque tick de 15 min (partiel, estimé) */
-  const mainItem = run.breakdown[0];
-  const yataInitQty = stockData?.stocks?.[run.country.code]?.stocks?.find(s => s.id === mainItem?.id)?.quantity ?? 500;
-  const RESTOCK_AMT = 2500;
-  const DECAY_RATE  = 20;   // items perdus par minute environ (estimation)
-
-  /* Génération de points de stock sur la timeline (toutes les 5 min) */
-  const stockPoints = [];
-  let curStock = yataInitQty;
-  for (let t = departTs; t <= endTs; t += 5 * 60) {
-    const sinceLastTick = (t % (15 * 60));
-    if (sinceLastTick < 5 * 60 && t > departTs) curStock = Math.min(2500, curStock + RESTOCK_AMT);
-    curStock = Math.max(0, curStock - DECAY_RATE * 5);
-    stockPoints.push({ ts: t, qty: curStock });
-  }
-
-  const maxStock = 2500;
-  const chartH   = 120;
-  const chartW   = 100;   // en % via SVG viewBox
-
-  /* Chemin SVG de la courbe de stock */
-  const pathPoints = stockPoints.map((p, i) => {
-    const x = ((p.ts - departTs) / totalSec) * 100;
-    const y = chartH - (p.qty / maxStock) * chartH;
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(' ');
-
-  /* Barres verticales des événements */
-  const eventColors = { depart: '#4f7ef8', arrive: '#22c55e', return: '#f59e0b', land: '#a78bfa' };
-  const eventBars = events.filter(e => e.ts >= departTs && e.ts <= endTs).map(e => {
-    const x = ((e.ts - departTs) / totalSec * 100).toFixed(2);
-    const color = eventColors[e.type] || '#888';
-    return `<line x1="${x}" y1="0" x2="${x}" y2="${chartH}" stroke="${color}" stroke-width="0.8" stroke-dasharray="3,2"/>`;
-  }).join('');
-
-  /* Barres de restock */
-  const restockBars = ticks.filter(t => t >= departTs && t <= endTs).map(t => {
-    const x = ((t - departTs) / totalSec * 100).toFixed(2);
-    return `<line x1="${x}" y1="0" x2="${x}" y2="${chartH}" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>`;
-  }).join('');
-
-  /* Légende des événements */
-  const legendItems = events.filter(e => e.ts >= departTs && e.ts <= endTs).map(e => {
-    const color = eventColors[e.type] || '#888';
-    return `<span class="tl-legend-item">
-      <span style="display:inline-block;width:10px;height:2px;background:${color};vertical-align:middle;margin-right:4px"></span>
-      ${e.label} <span style="color:var(--text3)">${fmtHour(e.ts)}</span>
-    </span>`;
-  }).join('');
-
-  /* Liste des items sur place */
+  /* ── Items ─────────────────────────────────────────────────── */
   const itemRows = run.breakdown.map(b => {
     const color    = TYPE_COLORS[b.type] || '#888';
     const probaStr = Math.round(b.stockProba * 100) + '%';
     const barW     = Math.round(b.stockProba * 100);
+    const qtyStr   = b.yataQty != null ? `${b.yataQty} en stock` : 'Stock inconnu';
     return `<div class="tl-item-row">
       <span class="dot" style="background:${color}"></span>
       <span style="flex:1">${b.name}</span>
+      <span style="color:var(--text3);font-size:11px">${qtyStr}</span>
       <span style="color:var(--text2)">×${b.qty}</span>
-      <div class="tl-proba-bar">
-        <div class="tl-proba-fill" style="width:${barW}%;background:${color}"></div>
-      </div>
+      <div class="tl-proba-bar"><div class="tl-proba-fill" style="width:${barW}%;background:${color}"></div></div>
       <span style="color:${color};min-width:32px;text-align:right">${probaStr}</span>
-      <span style="color:var(--green);min-width:80px;text-align:right">+$${fmt(b.grossProfit)}</span>
+      <span style="color:var(--green);min-width:90px;text-align:right">+$${fmt(b.grossProfit)}</span>
     </div>`;
   }).join('');
 
-  /* Timeline trips */
+  /* ── Trips ─────────────────────────────────────────────────── */
   const tripRows = run.trips.map((t, i) => `
     <div class="tl-trip-row">
       <span class="tl-trip-num">T${i+1}</span>
-      <span class="tl-trip-seg" style="background:#4f7ef822;border:1px solid #4f7ef844">
-        ✈ Départ ${fmtHour(t.startTs)}
-      </span>
+      <span class="tl-trip-seg" style="background:rgba(79,126,248,.15);border:1px solid rgba(79,126,248,.3)">✈ ${fmtHour(t.startTs)}</span>
       <span class="tl-arrow">→</span>
-      <span class="tl-trip-seg" style="background:#22c55e22;border:1px solid #22c55e44">
-        🛬 Arrivée ${fmtHour(t.arriveTs)}
-      </span>
+      <span class="tl-trip-seg" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3)">🛬 ${fmtHour(t.arriveTs)}</span>
       <span class="tl-arrow">→</span>
-      <span class="tl-trip-seg" style="background:#f59e0b22;border:1px solid #f59e0b44">
-        🛒 Sur place 5 min
-      </span>
+      <span class="tl-trip-seg" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3)">🛒 5 min</span>
       <span class="tl-arrow">→</span>
-      <span class="tl-trip-seg" style="background:#a78bfa22;border:1px solid #a78bfa44">
-        🛬 Retour ${fmtHour(t.landTs)}
-      </span>
-    </div>
-  `).join('');
+      <span class="tl-trip-seg" style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3)">✈ ${fmtHour(t.returnTs)}</span>
+      <span class="tl-arrow">→</span>
+      <span class="tl-trip-seg" style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.3)">🛬 ${fmtHour(t.landTs)}</span>
+    </div>`).join('');
 
   return `
-    <div class="tl-section-title">Stock estimé — ${mainItem ? mainItem.name : 'item principal'}</div>
+    <div class="tl-section-title">Évolution du stock — ${mainItem ? mainItem.name : 'item principal'}</div>
     <div class="tl-chart-wrap">
-      <svg viewBox="0 0 100 ${chartH}" preserveAspectRatio="none" style="width:100%;height:${chartH}px;display:block">
-        ${restockBars}
-        ${eventBars}
-        <path d="${pathPoints}" fill="none" stroke="#4f7ef8" stroke-width="1.5"/>
-        <path d="${pathPoints} L100,${chartH} L0,${chartH} Z" fill="rgba(79,126,248,0.1)"/>
+      <div class="tl-chart-ylabels"><span>2500</span><span style="margin-top:auto">0</span></div>
+      <svg viewBox="0 0 100 ${chartH}" preserveAspectRatio="none"
+           style="width:100%;height:${chartH}px;display:block;margin-left:28px;width:calc(100% - 28px)">
+        <!-- Grille horizontale -->
+        <line x1="0" y1="${chartH/2}" x2="100" y2="${chartH/2}" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+        <!-- Ticks de restock -->
+        ${tickLines.join('')}
+        <!-- Événements -->
+        ${evLines.join('')}
+        <!-- Courbe stock -->
+        <path d="${fillD}" fill="rgba(79,126,248,0.08)"/>
+        <path d="${pathD}" fill="none" stroke="#4f7ef8" stroke-width="1.5"/>
       </svg>
       <div class="tl-chart-labels">
         <span>${fmtHour(departTs)}</span>
-        <span style="color:var(--text3);font-size:10px">Stock estimé (ordre de grandeur)</span>
+        <span style="color:var(--text3);font-size:10px">— Ticks de restock toutes les 15 min (estimé)</span>
         <span>${fmtHour(endTs)}</span>
       </div>
-      <div class="tl-chart-ylabels">
-        <span>2500</span>
-        <span>0</span>
-      </div>
     </div>
-    <div class="tl-legend">${legendItems}</div>
+    <div class="tl-legend">${legendHTML}</div>
 
     <div class="tl-section-title" style="margin-top:1.25rem">Items à acheter</div>
-    <div>${itemRows}</div>
+    ${itemRows}
 
     <div class="tl-section-title" style="margin-top:1.25rem">Détail des trips</div>
     <div class="tl-trips">${tripRows}</div>
 
     <div class="tl-summary">
-      <span>💰 Profit total estimé : <strong class="green">$${fmt(run.totalProfit)}</strong></span>
-      <span>⏱ Temps utilisé : <strong>${Math.round(run.tripMin * run.maxTrips / 60 * 10) / 10}h</strong></span>
+      <span>💰 Profit total : <strong class="green">$${fmt(run.totalProfit)}</strong></span>
+      <span>⏱ Session utilisée : <strong>${Math.round(run.tripMin * run.maxTrips / 60 * 10) / 10}h / ${document.getElementById('sessionHours').value}h</strong></span>
     </div>
   `;
 }
