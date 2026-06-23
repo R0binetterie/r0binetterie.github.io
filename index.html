@@ -30,8 +30,6 @@
 
   <main>
     <div class="layout">
-
-      <!-- PANNEAU CONFIG -->
       <aside class="sidebar">
 
         <div class="card">
@@ -40,7 +38,7 @@
             Clé API Torn
           </div>
           <input type="password" id="apiKey" placeholder="Clé publique (optionnel)" autocomplete="off" />
-          <p class="hint">Niveau "Public Only" suffisant — pour les prix marché temps réel.</p>
+          <p class="hint">Niveau "Public Only" — pour les prix marché temps réel.</p>
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
             <button class="btn-sm" onclick="saveKey()">Enregistrer</button>
             <span id="keyStatus" class="key-status"></span>
@@ -54,14 +52,14 @@
           </div>
           <label>Heure de départ
             <div style="display:flex;gap:6px;margin-top:4px">
-              <button class="btn-time" id="btnNow" onclick="setDepartNow()" style="flex:1">Maintenant</button>
-              <input type="time" id="departTime" onchange="setDepartCustom()" style="flex:1" />
+              <button class="btn-time active" id="btnNow" onclick="setDepartNow()">Maintenant</button>
+              <input type="time" id="departTime" onchange="setDepartCustom()" />
             </div>
           </label>
           <label>Durée de session
             <div class="slider-row">
               <input type="range" id="sessionHours" min="1" max="24" value="8" step="1"
-                oninput="document.getElementById('sessionHoursVal').textContent = this.value + 'h'; scheduleRecompute()" />
+                oninput="document.getElementById('sessionHoursVal').textContent=this.value+'h';scheduleRecompute()" />
               <span id="sessionHoursVal" class="slider-val">8h</span>
             </div>
           </label>
@@ -77,18 +75,18 @@
 
         <div class="card">
           <div class="card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21 4 21 4s-2 0-3.5 1.5L14 9 5.8 7.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 3.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.1z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             Préférences de voyage
           </div>
           <label>Longueur minimale du vol
             <div class="slider-row">
               <input type="range" id="minFlightTime" min="0" max="310" value="0" step="10"
-                oninput="updateFlightLabel(); scheduleRecompute()" />
-              <span id="minFlightLabel" class="slider-val" style="min-width:56px">Tous</span>
+                oninput="updateFlightLabel();scheduleRecompute()" />
+              <span id="minFlightLabel" class="slider-val" style="min-width:60px">Tous</span>
             </div>
             <p class="hint" id="minFlightHint">Toutes les destinations incluses.</p>
           </label>
-          <label style="margin-top:10px">Nombre max de trips
+          <label>Nombre max de trips
             <select id="maxTrips" onchange="scheduleRecompute()">
               <option value="999">Pas de limite</option>
               <option value="1">1 seul trip</option>
@@ -97,6 +95,13 @@
               <option value="5">5 trips max</option>
             </select>
           </label>
+          <label>Fin de session
+            <select id="finishAbroad" onchange="scheduleRecompute()">
+              <option value="no">Retour à Torn obligatoire</option>
+              <option value="yes">Peut finir à l'étranger (cours, travail…)</option>
+            </select>
+          </label>
+          <p class="hint">Si "finit à l'étranger", le dernier aller ne compte pas le vol retour — permet un trip de plus.</p>
         </div>
 
         <div class="card">
@@ -105,14 +110,14 @@
             Mode de vol
           </div>
           <label>Type de voyage
-            <select id="flightMode" onchange="updateCapacity(); scheduleRecompute()">
+            <select id="flightMode" onchange="updateCapacity();scheduleRecompute()">
               <option value="standard">Standard — 5 items</option>
               <option value="airstrip" selected>Airstrip — 15 items</option>
               <option value="wlt">WLT / Business Class — 15 items</option>
             </select>
           </label>
           <label>Valise
-            <select id="suitcase" onchange="updateCapacity(); scheduleRecompute()">
+            <select id="suitcase" onchange="updateCapacity();scheduleRecompute()">
               <option value="0">Aucune</option>
               <option value="2">Small (+2)</option>
               <option value="3">Medium (+3)</option>
@@ -122,25 +127,25 @@
           <label>Bonus faction (Excursion)
             <div class="slider-row">
               <input type="range" id="factionBonus" min="0" max="10" value="0" step="1"
-                oninput="document.getElementById('factionBonusVal').textContent = '+' + this.value; updateCapacity(); scheduleRecompute()" />
+                oninput="document.getElementById('factionBonusVal').textContent='+'+this.value;updateCapacity();scheduleRecompute()" />
               <span id="factionBonusVal" class="slider-val">+0</span>
             </div>
           </label>
           <label>Lingerie Store (5★)
-            <select id="lingerieBonus" onchange="updateCapacity(); scheduleRecompute()">
+            <select id="lingerieBonus" onchange="updateCapacity();scheduleRecompute()">
               <option value="0">Non</option>
               <option value="2">Oui (+2)</option>
             </select>
           </label>
           <label>Cruise Line
-            <select id="cruiseBonus" onchange="updateCapacity(); scheduleRecompute()">
+            <select id="cruiseBonus" onchange="updateCapacity();scheduleRecompute()">
               <option value="0">Non</option>
               <option value="2">3★ (+2)</option>
               <option value="3">10★ (+3)</option>
             </select>
           </label>
           <div class="capacity-chip">
-            <span>Capacité totale</span>
+            <span>Capacité de base</span>
             <strong id="capacityDisplay">19</strong>
           </div>
         </div>
@@ -150,16 +155,17 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
             Bonus de job
           </div>
+          <p class="hint">Slots supplémentaires pour le type d'item concerné uniquement.</p>
           <label>Toy Shop (7★) — peluches
             <select id="jobToy" onchange="scheduleRecompute()">
               <option value="0">Non</option>
-              <option value="5">Oui (+5)</option>
+              <option value="5">Oui (+5 peluches)</option>
             </select>
           </label>
           <label>Flower Shop (7★) — fleurs
             <select id="jobFlower" onchange="scheduleRecompute()">
               <option value="0">Non</option>
-              <option value="5">Oui (+5)</option>
+              <option value="5">Oui (+5 fleurs)</option>
             </select>
           </label>
         </div>
@@ -172,8 +178,8 @@
           <label>Types d'items</label>
           <div class="checkbox-group">
             <label class="cb-label"><input type="checkbox" id="f_plushie" checked onchange="scheduleRecompute()"><span>🧸 Peluches</span></label>
-            <label class="cb-label"><input type="checkbox" id="f_flower" checked onchange="scheduleRecompute()"><span>🌸 Fleurs</span></label>
-            <label class="cb-label"><input type="checkbox" id="f_drug" checked onchange="scheduleRecompute()"><span>💊 Drogues</span></label>
+            <label class="cb-label"><input type="checkbox" id="f_flower"  checked onchange="scheduleRecompute()"><span>🌸 Fleurs</span></label>
+            <label class="cb-label"><input type="checkbox" id="f_drug"    checked onchange="scheduleRecompute()"><span>💊 Drogues</span></label>
           </div>
           <label style="margin-top:10px">Fraîcheur données YATA
             <select id="freshnessFilter" onchange="scheduleRecompute()">
@@ -194,43 +200,28 @@
 
       </aside>
 
-      <!-- RÉSULTATS -->
       <section class="results">
         <div id="statusBanner" class="banner banner-info" style="display:none"></div>
         <div id="summaryCards" class="summary-row" style="display:none">
-          <div class="stat-card">
-            <div class="stat-val" id="s_runs">—</div>
-            <div class="stat-lbl">destinations</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-val green" id="s_bestProfit">—</div>
-            <div class="stat-lbl">meilleur profit total</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-val" id="s_bestTrips">—</div>
-            <div class="stat-lbl">trips (meilleur run)</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-val" id="s_bestPerHour">—</div>
-            <div class="stat-lbl">$/heure (meilleur)</div>
-          </div>
+          <div class="stat-card"><div class="stat-val" id="s_runs">—</div><div class="stat-lbl">destinations</div></div>
+          <div class="stat-card"><div class="stat-val green" id="s_bestProfit">—</div><div class="stat-lbl">meilleur profit total</div></div>
+          <div class="stat-card"><div class="stat-val" id="s_bestTrips">—</div><div class="stat-lbl">trips (meilleur run)</div></div>
+          <div class="stat-card"><div class="stat-val" id="s_bestPerHour">—</div><div class="stat-lbl">$/heure</div></div>
         </div>
         <div id="runList"></div>
         <div id="emptyState" class="empty-state">
           <div class="empty-icon">✈️</div>
           <div class="empty-title">Prêt à décoller</div>
-          <div class="empty-sub">Clique sur <strong>Actualiser YATA</strong> pour charger les stocks, ou <strong>Recalculer</strong> pour utiliser les données déjà chargées.</div>
+          <div class="empty-sub">Clique sur <strong>Actualiser YATA</strong> pour charger les stocks en temps réel, ou <strong>Recalculer</strong> si tu as déjà des données en cache.</div>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:1rem">
             <button class="btn-primary" onclick="fetchAndCompute()">Actualiser YATA + Calculer</button>
-            <button class="btn-secondary" onclick="compute()">Recalculer sans fetch</button>
+            <button class="btn-secondary" onclick="compute()">Recalculer (cache)</button>
           </div>
         </div>
       </section>
-
     </div>
   </main>
 
-  <!-- Modal timeline -->
   <div id="timelineModal" class="modal-overlay" onclick="closeModal(event)" style="display:none">
     <div class="modal-box" onclick="event.stopPropagation()">
       <div class="modal-header">
