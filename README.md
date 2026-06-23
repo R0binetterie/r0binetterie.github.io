@@ -49,18 +49,6 @@ La clé est stockée uniquement dans ta session de navigateur (`sessionStorage`)
 
 ---
 
-## 🛠️ Mettre à jour les prix
-
-Les prix de vente dans `js/data.js` sont des estimations. Pour les mettre à jour :
-
-1. Ouvre `js/data.js`
-2. Modifie les valeurs `sell` de chaque item
-3. Commit et push
-
-Tu peux aussi utiliser ta clé API pour avoir les prix automatiquement.
-
----
-
 ## 📝 Structure du projet
 
 ```
