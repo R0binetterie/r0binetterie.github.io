@@ -8,6 +8,75 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>" />
 </head>
 <body>
+
+  <!-- ── Intro animation ── -->
+  <div id="introScreen" style="position:fixed;inset:0;background:#0f1117;z-index:9999;display:flex;align-items:center;justify-content:center;overflow:hidden">
+    <div id="introStars" style="position:absolute;inset:0"></div>
+    <div id="introPlane" style="position:absolute;top:50%;left:-100px;transform:translateY(-50%);display:flex;align-items:center;pointer-events:none">
+      <div style="width:140px;height:2px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.1),rgba(255,255,255,0.35));border-radius:2px"></div>
+      <svg width="44" height="28" viewBox="0 0 44 28" fill="none">
+        <path d="M2 14L36 4L41 14L36 24L2 14Z" fill="white" opacity="0.95"/>
+        <path d="M8 14L22 9L24 14L22 19L8 14Z" fill="#c8d0e0"/>
+      </svg>
+    </div>
+    <div id="introLogo" style="opacity:0;text-align:center;pointer-events:none">
+      <div style="font-size:22px;font-weight:500;color:#e8eaf0;letter-spacing:.02em;margin-bottom:8px">✈ Torn Travel Optimizer</div>
+      <div style="font-size:14px;color:#8b90a0">Maximise tes runs à l'étranger</div>
+    </div>
+  </div>
+
+  <style>
+    #introScreen { transition: opacity 0.6s ease; }
+  </style>
+
+  <script>
+    (function(){
+      /* Étoiles */
+      const starsEl = document.getElementById('introStars');
+      for(let i=0;i<60;i++){
+        const s = document.createElement('div');
+        const sz = Math.random()*1.8+0.4;
+        s.style.cssText = \`position:absolute;background:#fff;border-radius:50%;width:\${sz}px;height:\${sz}px;left:\${Math.random()*100}%;top:\${Math.random()*100}%;opacity:\${Math.random()*0.5+0.15}\`;
+        starsEl.appendChild(s);
+      }
+
+      const plane = document.getElementById('introPlane');
+      const logo  = document.getElementById('introLogo');
+      const screen = document.getElementById('introScreen');
+      const W = window.innerWidth;
+
+      /* Phase 1 : avion traverse (1.6s) */
+      let start = null;
+      const DURATION = 1600;
+
+      function animatePlane(ts){
+        if(!start) start=ts;
+        const p = Math.min((ts-start)/DURATION, 1);
+        /* ease-in-out */
+        const ease = p<0.5 ? 2*p*p : -1+(4-2*p)*p;
+        const x = -100 + ease*(W+160);
+        plane.style.left = x+'px';
+        /* fade in à 10%, fade out à 85% */
+        const op = p<0.1 ? p*10 : p>0.85 ? (1-p)/0.15 : 1;
+        plane.style.opacity = op;
+        if(p<1){ requestAnimationFrame(animatePlane); }
+        else { showLogo(); }
+      }
+      requestAnimationFrame(animatePlane);
+
+      /* Phase 2 : logo fade in (0.5s) puis site fade in (0.6s) */
+      function showLogo(){
+        logo.style.transition='opacity 0.5s ease';
+        logo.style.opacity='1';
+        setTimeout(()=>{
+          /* fade out tout l'écran intro */
+          screen.style.opacity='0';
+          setTimeout(()=>{ screen.style.display='none'; }, 600);
+        }, 800);
+      }
+    })();
+  </script>
+
   <header>
     <div class="header-inner">
       <div class="logo">
@@ -97,9 +166,10 @@
           <div class="card-title">🎒 Mode de vol</div>
           <label>Type de voyage
             <select id="flightMode" onchange="updateCapacity();scheduleRecompute()">
-              <option value="standard">Standard — 5 items</option>
-              <option value="airstrip" selected>Airstrip — 15 items</option>
-              <option value="wlt">WLT / Business Class — 15 items</option>
+              <option value="standard">Standard (−0%) — 5 items</option>
+              <option value="airstrip" selected>Airstrip (−30%) — 15 items</option>
+              <option value="wlt">WLT / Airstrip 50% — 15 items</option>
+              <option value="business">Business Class (−70%) — 15 items</option>
             </select>
           </label>
           <label>Valise
