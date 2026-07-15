@@ -1,13 +1,3 @@
-fix
--flags not showing (ez)
--wrong stuff with the expected amount of plushie / flowers abroad (hard no real data)
--look at restocks (med)
--images are widen (med)
--too small text (med)
--grab prices with torn API (ez)
--add other obs like the cruise fo radditional items (ez)
--add tourism day (ez)
-
 
 # ✈️ Torn Travel Optimizer
 
