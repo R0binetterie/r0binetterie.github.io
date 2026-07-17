@@ -1,6 +1,17 @@
 /* ================================================================
    data.js — Torn Travel Optimizer
-   Modèles calibrés sur données réelles (yata_tracker.py, ~10h, 97 appels)
+   Paramètres calibrés sur yata_history.json (97 appels, ~10h)
+   
+   MODÈLE TICK→RESTOCK (100 mesures sur peluches) :
+   Distribution empirique délai tick TCT → restock effectif :
+   P10=3.5 P25=6.6 P50=9.4 P75=12.0 P90=14.7 min
+   Valeurs brutes: [0.8,1.0,1.1,1.5,1.8,1.9,2.1,2.4,3.4,3.4,3.5,3.5,
+   3.7,4.2,4.3,4.3,4.7,4.9,5.3,5.4,5.6,5.8,6.0,6.3,6.5,6.6,6.8,6.8,
+   6.8,7.0,7.2,7.2,7.2,7.5,7.5,7.6,7.6,7.6,7.7,8.3,8.3,8.3,8.4,8.5,
+   8.8,9.1,9.2,9.4,9.4,9.4,9.6,9.6,9.8,9.9,10.0,10.0,10.1,10.2,10.3,
+   10.4,10.4,10.6,10.8,10.9,11.0,11.1,11.2,11.4,11.4,11.6,11.6,11.7,
+   11.8,11.9,12.0,12.2,12.3,12.4,12.7,12.7,12.8,12.9,12.9,13.3,14.1,
+   14.2,14.4,14.4,14.5,14.7,15.1,15.2,15.7,15.8,16.0,16.1,16.7,18.4,19.0]
    ================================================================ */
 
 const COUNTRIES = [
@@ -17,70 +28,85 @@ const COUNTRIES = [
   { name:'South Africa',   code:'sou', flag:'za', timeMin:{ standard:297, airstrip:208, wlt:149, business:89 }, cost:40000 },
 ];
 
-/* Modèles calibrés sur données réelles (yata_tracker.py)
-   restockQty = max observé sur ~10h de collecte
-   vidageMin  = moyenne sur N cycles mesurés
-   restockMin = délai moyen stock=0 → restock
-   modelKey   = clé dans STOCK_MODELS pour le graphe */
-const ITEMS = [
-  /* ── Peluches ── */
-  { id:'jaguar',   tornId:258, name:'Jaguar Plushie',         country:'mex', type:'plushie', buy:10000, sell:55000,  restockQty:2500, vidageMin:43,  restockMin:14, modelKey:'mex_jaguar_plushie'    },
-  { id:'stingray', tornId:618, name:'Stingray Plushie',       country:'cay', type:'plushie', buy:400,   sell:20000,  restockQty:2500, vidageMin:43,  restockMin:15, modelKey:'cay_stingray_plushie'  },
-  { id:'wolverine',tornId:261, name:'Wolverine Plushie',      country:'can', type:'plushie', buy:30,    sell:8000,   restockQty:2500, vidageMin:37,  restockMin:14, modelKey:'can_wolverine_plushie' },
-  { id:'lion',     tornId:281, name:'Lion Plushie',           country:'sou', type:'plushie', buy:400,   sell:65000,  restockQty:2428, vidageMin:33,  restockMin:15, modelKey:'sou_lion_plushie'      },
-  { id:'monkey',   tornId:269, name:'Monkey Plushie',         country:'arg', type:'plushie', buy:400,   sell:48000,  restockQty:2480, vidageMin:41,  restockMin:16, modelKey:'arg_monkey_plushie'    },
-  { id:'chamois',  tornId:273, name:'Chamois Plushie',        country:'swi', type:'plushie', buy:400,   sell:12000,  restockQty:2406, vidageMin:34,  restockMin:16, modelKey:'swi_chamois_plushie'   },
-  { id:'nessie',   tornId:266, name:'Nessie Plushie',         country:'uni', type:'plushie', buy:200,   sell:38000,  restockQty:2500, vidageMin:52,  restockMin:15, modelKey:'uni_nessie_plushie'    },
-  { id:'redfox',   tornId:268, name:'Red Fox Plushie',        country:'uni', type:'plushie', buy:1000,  sell:40000,  restockQty:2500, vidageMin:48,  restockMin:14, modelKey:'uni_red_fox_plushie'   },
-  { id:'cherry_p', tornId:277, name:'Cherry Blossom Plushie', country:'jap', type:'plushie', buy:2500,  sell:30000,  restockQty:2500, vidageMin:40,  restockMin:15, modelKey:null                    },
-  { id:'panda',    tornId:274, name:'Panda Plushie',          country:'chi', type:'plushie', buy:400,   sell:72000,  restockQty:2500, vidageMin:30,  restockMin:16, modelKey:'chi_panda_plushie'     },
-  { id:'camel',    tornId:384, name:'Camel Plushie',          country:'uae', type:'plushie', buy:14000, sell:55000,  restockQty:2500, vidageMin:39,  restockMin:15, modelKey:'uae_camel_plushie'     },
-  /* ── Fleurs ── */
-  { id:'dahlia',   tornId:260, name:'Dahlia',                 country:'mex', type:'flower',  buy:300,   sell:3500,   restockQty:9999, vidageMin:477, restockMin:58, modelKey:'mex_dahlia'            },
-  { id:'orchid_b', tornId:617, name:'Banana Orchid',          country:'cay', type:'flower',  buy:4000,  sell:4500,   restockQty:9873, vidageMin:285, restockMin:63, modelKey:'cay_banana_orchid'     },
-  { id:'crocus',   tornId:263, name:'Crocus',                 country:'can', type:'flower',  buy:600,   sell:3000,   restockQty:9951, vidageMin:213, restockMin:55, modelKey:'can_crocus'            },
-  { id:'violet',   tornId:282, name:'African Violet',         country:'sou', type:'flower',  buy:2000,  sell:5000,   restockQty:9943, vidageMin:325, restockMin:52, modelKey:'sou_african_violet'    },
-  { id:'ceibo',    tornId:271, name:'Ceibo Flower',           country:'arg', type:'flower',  buy:500,   sell:9000,   restockQty:9653, vidageMin:280, restockMin:69, modelKey:'arg_ceibo_flower'      },
-  { id:'edelweiss',tornId:272, name:'Edelweiss',              country:'swi', type:'flower',  buy:900,   sell:6000,   restockQty:9925, vidageMin:185, restockMin:64, modelKey:'swi_edelweiss'         },
-  { id:'heather',  tornId:267, name:'Heather',                country:'uni', type:'flower',  buy:5000,  sell:10000,  restockQty:9971, vidageMin:300, restockMin:60, modelKey:null                    },
-  { id:'cherry_f', tornId:278, name:'Cherry Blossom',         country:'jap', type:'flower',  buy:500,   sell:14000,  restockQty:9843, vidageMin:218, restockMin:57, modelKey:'jap_cherry_blossom'    },
-  { id:'peony',    tornId:276, name:'Peony',                  country:'chi', type:'flower',  buy:5000,  sell:20000,  restockQty:9744, vidageMin:403, restockMin:55, modelKey:'chi_peony'             },
-  { id:'tribulus', tornId:385, name:'Tribulus Omanense',      country:'uae', type:'flower',  buy:6000,  sell:28000,  restockQty:9819, vidageMin:194, restockMin:70, modelKey:'uae_tribulus_omanense'  },
-  { id:'orchid',   tornId:264, name:'Orchid',                 country:'haw', type:'flower',  buy:700,   sell:7000,   restockQty:9890, vidageMin:220, restockMin:54, modelKey:'haw_orchid'            },
-  /* ── Drogues ── */
-  { id:'xanax_can',tornId:206, name:'Xanax',                  country:'can', type:'drug',    buy:761000,sell:750000, restockQty:1854, vidageMin:11,  restockMin:157,modelKey:'can_xanax'             },
-  { id:'xanax_jap',tornId:206, name:'Xanax',                  country:'jap', type:'drug',    buy:733000,sell:750000, restockQty:2077, vidageMin:36,  restockMin:125,modelKey:'jap_xanax'             },
-  { id:'xanax_uni',tornId:206, name:'Xanax',                  country:'uni', type:'drug',    buy:773000,sell:750000, restockQty:2489, vidageMin:157, restockMin:108,modelKey:'uni_xanax'             },
-  { id:'cannabis', tornId:196, name:'Cannabis',               country:'mex', type:'drug',    buy:500,   sell:2500,   restockQty:1000, vidageMin:300, restockMin:60, modelKey:null                    },
-  { id:'ecstasy',  tornId:197, name:'Ecstasy',                country:'uni', type:'drug',    buy:3000,  sell:15000,  restockQty:1000, vidageMin:240, restockMin:60, modelKey:null                    },
-  { id:'pcp',      tornId:201, name:'PCP',                    country:'arg', type:'drug',    buy:5000,  sell:20000,  restockQty:1000, vidageMin:240, restockMin:60, modelKey:null                    },
-  { id:'lsd',      tornId:199, name:'LSD',                    country:'jap', type:'drug',    buy:2000,  sell:10000,  restockQty:1000, vidageMin:240, restockMin:60, modelKey:null                    },
-  { id:'opium',    tornId:200, name:'Opium',                  country:'chi', type:'drug',    buy:8000,  sell:40000,  restockQty:1000, vidageMin:240, restockMin:60, modelKey:null                    },
-  { id:'ketamine', tornId:198, name:'Ketamine',               country:'uae', type:'drug',    buy:6000,  sell:25000,  restockQty:1000, vidageMin:240, restockMin:60, modelKey:null                    },
-  { id:'vicodin',  tornId:205, name:'Vicodin',                country:'haw', type:'drug',    buy:1000,  sell:4000,   restockQty:1000, vidageMin:300, restockMin:60, modelKey:null                    },
-  { id:'melatonin',tornId:464, name:'Melatonin',              country:'sou', type:'drug',    buy:200,   sell:1500,   restockQty:1000, vidageMin:360, restockMin:60, modelKey:null                    },
+/* Distribution empirique tick→restock (100 mesures peluches)
+   Utilisée pour calculer P(restock fait) en fonction du délai après tick */
+const TICK_RESTOCK_DIST = [
+  0.8,1.0,1.1,1.5,1.8,1.9,2.1,2.4,3.4,3.4,3.5,3.5,3.7,4.2,4.3,4.3,
+  4.7,4.9,5.3,5.4,5.6,5.8,6.0,6.3,6.5,6.6,6.8,6.8,6.8,7.0,7.2,7.2,
+  7.2,7.5,7.5,7.6,7.6,7.6,7.7,8.3,8.3,8.3,8.4,8.5,8.8,9.1,9.2,9.4,
+  9.4,9.4,9.6,9.6,9.8,9.9,10.0,10.0,10.1,10.2,10.3,10.4,10.4,10.6,
+  10.8,10.9,11.0,11.1,11.2,11.4,11.4,11.6,11.6,11.7,11.8,11.9,12.0,
+  12.2,12.3,12.4,12.7,12.7,12.8,12.9,12.9,13.3,14.1,14.2,14.4,14.4,
+  14.5,14.7,15.1,15.2,15.7,15.8,16.0,16.1,16.7,18.4,19.0
 ];
 
-/* Modèles calibrés — utilisés pour les graphes dans la modal */
+/* P(restock fait) si on arrive X minutes après un tick TCT
+   Basé sur la distribution empirique : fraction de restocks < X min */
+function probaRestockDone(minutesAfterTick) {
+  if (minutesAfterTick <= 0) return 0;
+  const done = TICK_RESTOCK_DIST.filter(d => d <= minutesAfterTick).length;
+  return done / TICK_RESTOCK_DIST.length;
+}
+
+const ITEMS = [
+  /* ── Peluches (vidageMin/restockMin calibrés sur 8-13 cycles chacun) ── */
+  { id:'jaguar',   tornId:258, name:'Jaguar Plushie',         country:'mex', type:'plushie', buy:10000, sell:55000,  restockQty:2500, vidageMin:43,  restockMin:14 },
+  { id:'stingray', tornId:618, name:'Stingray Plushie',       country:'cay', type:'plushie', buy:400,   sell:20000,  restockQty:2500, vidageMin:43,  restockMin:15 },
+  { id:'wolverine',tornId:261, name:'Wolverine Plushie',      country:'can', type:'plushie', buy:30,    sell:8000,   restockQty:2500, vidageMin:37,  restockMin:14 },
+  { id:'lion',     tornId:281, name:'Lion Plushie',           country:'sou', type:'plushie', buy:400,   sell:65000,  restockQty:2428, vidageMin:33,  restockMin:15 },
+  { id:'monkey',   tornId:269, name:'Monkey Plushie',         country:'arg', type:'plushie', buy:400,   sell:48000,  restockQty:2480, vidageMin:41,  restockMin:16 },
+  { id:'chamois',  tornId:273, name:'Chamois Plushie',        country:'swi', type:'plushie', buy:400,   sell:12000,  restockQty:2406, vidageMin:34,  restockMin:16 },
+  { id:'nessie',   tornId:266, name:'Nessie Plushie',         country:'uni', type:'plushie', buy:200,   sell:38000,  restockQty:2500, vidageMin:57,  restockMin:15 },
+  { id:'redfox',   tornId:268, name:'Red Fox Plushie',        country:'uni', type:'plushie', buy:1000,  sell:40000,  restockQty:2500, vidageMin:53,  restockMin:14 },
+  { id:'cherry_p', tornId:277, name:'Cherry Blossom Plushie', country:'jap', type:'plushie', buy:2500,  sell:30000,  restockQty:2500, vidageMin:40,  restockMin:15 },
+  { id:'panda',    tornId:274, name:'Panda Plushie',          country:'chi', type:'plushie', buy:400,   sell:72000,  restockQty:2500, vidageMin:36,  restockMin:14 },
+  { id:'camel',    tornId:384, name:'Camel Plushie',          country:'uae', type:'plushie', buy:14000, sell:55000,  restockQty:2500, vidageMin:39,  restockMin:15 },
+  /* ── Fleurs ── */
+  { id:'dahlia',   tornId:260, name:'Dahlia',                 country:'mex', type:'flower',  buy:300,   sell:3500,   restockQty:9999, vidageMin:477, restockMin:58 },
+  { id:'orchid_b', tornId:617, name:'Banana Orchid',          country:'cay', type:'flower',  buy:4000,  sell:4500,   restockQty:9873, vidageMin:285, restockMin:63 },
+  { id:'crocus',   tornId:263, name:'Crocus',                 country:'can', type:'flower',  buy:600,   sell:3000,   restockQty:9951, vidageMin:213, restockMin:56 },
+  { id:'violet',   tornId:282, name:'African Violet',         country:'sou', type:'flower',  buy:2000,  sell:5000,   restockQty:9943, vidageMin:325, restockMin:52 },
+  { id:'ceibo',    tornId:271, name:'Ceibo Flower',           country:'arg', type:'flower',  buy:500,   sell:9000,   restockQty:9653, vidageMin:280, restockMin:69 },
+  { id:'edelweiss',tornId:272, name:'Edelweiss',              country:'swi', type:'flower',  buy:900,   sell:6000,   restockQty:9925, vidageMin:185, restockMin:64 },
+  { id:'heather',  tornId:267, name:'Heather',                country:'uni', type:'flower',  buy:5000,  sell:10000,  restockQty:9971, vidageMin:300, restockMin:60 },
+  { id:'cherry_f', tornId:278, name:'Cherry Blossom',         country:'jap', type:'flower',  buy:500,   sell:14000,  restockQty:9843, vidageMin:218, restockMin:57 },
+  { id:'peony',    tornId:276, name:'Peony',                  country:'chi', type:'flower',  buy:5000,  sell:20000,  restockQty:9744, vidageMin:403, restockMin:55 },
+  { id:'tribulus', tornId:385, name:'Tribulus Omanense',      country:'uae', type:'flower',  buy:6000,  sell:28000,  restockQty:9819, vidageMin:194, restockMin:70 },
+  { id:'orchid',   tornId:264, name:'Orchid',                 country:'haw', type:'flower',  buy:700,   sell:7000,   restockQty:9890, vidageMin:220, restockMin:54 },
+  /* ── Drogues ── */
+  { id:'xanax_can',tornId:206, name:'Xanax',                  country:'can', type:'drug',    buy:761000,sell:750000, restockQty:1854, vidageMin:13,  restockMin:157 },
+  { id:'xanax_jap',tornId:206, name:'Xanax',                  country:'jap', type:'drug',    buy:733000,sell:750000, restockQty:2077, vidageMin:51,  restockMin:125 },
+  { id:'xanax_uni',tornId:206, name:'Xanax',                  country:'uni', type:'drug',    buy:773000,sell:750000, restockQty:2489, vidageMin:157, restockMin:108 },
+  { id:'cannabis', tornId:196, name:'Cannabis',               country:'mex', type:'drug',    buy:500,   sell:2500,   restockQty:1000, vidageMin:250, restockMin:106 },
+  { id:'ecstasy',  tornId:197, name:'Ecstasy',                country:'uni', type:'drug',    buy:3000,  sell:15000,  restockQty:1000, vidageMin:240, restockMin:90 },
+  { id:'pcp',      tornId:201, name:'PCP',                    country:'arg', type:'drug',    buy:5000,  sell:20000,  restockQty:1000, vidageMin:240, restockMin:60 },
+  { id:'lsd',      tornId:199, name:'LSD',                    country:'jap', type:'drug',    buy:2000,  sell:10000,  restockQty:1000, vidageMin:240, restockMin:60 },
+  { id:'opium',    tornId:200, name:'Opium',                  country:'chi', type:'drug',    buy:8000,  sell:40000,  restockQty:1000, vidageMin:240, restockMin:60 },
+  { id:'ketamine', tornId:198, name:'Ketamine',               country:'uae', type:'drug',    buy:6000,  sell:25000,  restockQty:1000, vidageMin:240, restockMin:60 },
+  { id:'vicodin',  tornId:205, name:'Vicodin',                country:'haw', type:'drug',    buy:1000,  sell:4000,   restockQty:1000, vidageMin:300, restockMin:60 },
+  { id:'melatonin',tornId:464, name:'Melatonin',              country:'sou', type:'drug',    buy:200,   sell:1500,   restockQty:1000, vidageMin:360, restockMin:60 },
+];
+
+/* Modèles par item pour les graphes dans la modal */
 const STOCK_MODELS = {
   'mex_jaguar_plushie':    { vidageMin:43,  restockMin:14, restockQty:2500, cycles:11 },
   'mex_dahlia':            { vidageMin:477, restockMin:58, restockQty:9999, cycles:1  },
   'cay_banana_orchid':     { vidageMin:285, restockMin:63, restockQty:9873, cycles:1  },
   'cay_stingray_plushie':  { vidageMin:43,  restockMin:15, restockQty:2500, cycles:10 },
-  'can_xanax':             { vidageMin:11,  restockMin:157,restockQty:1854, cycles:3  },
+  'can_xanax':             { vidageMin:13,  restockMin:157,restockQty:1854, cycles:2  },
   'can_wolverine_plushie': { vidageMin:37,  restockMin:14, restockQty:2500, cycles:11 },
-  'can_crocus':            { vidageMin:213, restockMin:55, restockQty:9951, cycles:1  },
+  'can_crocus':            { vidageMin:213, restockMin:56, restockQty:9951, cycles:1  },
   'haw_orchid':            { vidageMin:220, restockMin:54, restockQty:9890, cycles:1  },
   'uni_xanax':             { vidageMin:157, restockMin:108,restockQty:2489, cycles:1  },
-  'uni_nessie_plushie':    { vidageMin:52,  restockMin:15, restockQty:2500, cycles:9  },
-  'uni_red_fox_plushie':   { vidageMin:48,  restockMin:14, restockQty:2500, cycles:10 },
+  'uni_nessie_plushie':    { vidageMin:57,  restockMin:15, restockQty:2500, cycles:8  },
+  'uni_red_fox_plushie':   { vidageMin:53,  restockMin:14, restockQty:2500, cycles:9  },
   'arg_monkey_plushie':    { vidageMin:41,  restockMin:16, restockQty:2480, cycles:10 },
   'arg_ceibo_flower':      { vidageMin:280, restockMin:69, restockQty:9653, cycles:1  },
   'swi_edelweiss':         { vidageMin:185, restockMin:64, restockQty:9925, cycles:1  },
   'swi_chamois_plushie':   { vidageMin:34,  restockMin:16, restockQty:2406, cycles:12 },
-  'jap_xanax':             { vidageMin:36,  restockMin:125,restockQty:2077, cycles:3  },
+  'jap_xanax':             { vidageMin:51,  restockMin:125,restockQty:2077, cycles:2  },
   'jap_cherry_blossom':    { vidageMin:218, restockMin:57, restockQty:9843, cycles:1  },
-  'chi_panda_plushie':     { vidageMin:30,  restockMin:16, restockQty:2500, cycles:13 },
+  'chi_panda_plushie':     { vidageMin:36,  restockMin:14, restockQty:2500, cycles:12 },
   'chi_peony':             { vidageMin:403, restockMin:55, restockQty:9744, cycles:1  },
   'uae_camel_plushie':     { vidageMin:39,  restockMin:15, restockQty:2500, cycles:11 },
   'uae_tribulus_omanense': { vidageMin:194, restockMin:70, restockQty:9819, cycles:1  },

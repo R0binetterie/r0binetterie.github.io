@@ -174,7 +174,7 @@ function setLang(lang){
     }
   });
   document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===lang));
-  if(stockData!==null) compute();
+  if(stockData!==null && Object.keys(stockData).length>0) compute();
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
@@ -305,62 +305,82 @@ async function fetchAndCompute(){
   btn.classList.remove('loading');
 }
 
-/* ── Modèle de stock ─────────────────────────────────────────────
-   Distribution empirique délais restock peluches (109 cycles) :
-   P10=11.5  P25=12.6  P50=14.7  P75=18.1  P90=20.5  P99=31.8
+/* ── Modèle de stock basé sur position dans le cycle TCT ─────────
+   Pour les vols longs (>1h), le snapshot YATA est peu utile car
+   plusieurs cycles s'écoulent avant l'arrivée.
+   
+   Approche : à l'heure d'arrivée, on calcule combien de minutes
+   après le dernier tick TCT on se trouve, et on utilise la
+   distribution empirique TICK_RESTOCK_DIST pour calculer
+   P(restock déjà fait à ce moment).
+   
+   Résumé données (106 cycles vidage + 100 mesures tick→restock) :
+   Vidage moyen peluches : 40.7 min | Cycle total : ~55.5 min
+   Tick→Restock : P10=3.5 P50=9.4 P90=14.7 min
 ──────────────────────────────────────────────────────────────── */
-const RDIST={p10:11.5,p25:12.6,p50:14.7,p75:18.1,p90:20.5,p99:31.8};
 
 function nextTick(ts){return Math.ceil(ts/(15*60))*(15*60);}
+function prevTick(ts){return Math.floor(ts/(15*60))*(15*60);}
+
+function probaRestockDone(minutesAfterTick){
+  if(!minutesAfterTick||minutesAfterTick<=0) return 0;
+  const done=TICK_RESTOCK_DIST.filter(d=>d<=minutesAfterTick).length;
+  return done/TICK_RESTOCK_DIST.length;
+}
 
 function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   const nowTs=Date.now()/1000;
   const{restockQty,vidageMin,restockMin}=item;
-  if(!lastUpdateTs||yataQty===undefined)
-    return{qty:null,proba:0.5,label:t('inconnu'),prediction:null};
 
-  const decay=restockQty/(vidageMin*60);
-  const totalElapsed=(nowTs-lastUpdateTs)+(targetTs-nowTs);
-  let stock=yataQty,emptyAt=null;
-
-  for(let e=0;e<totalElapsed;e+=30){
-    stock=Math.max(0,stock-decay*30);
-    if(stock===0&&emptyAt===null)emptyAt=lastUpdateTs+e;
-    if(emptyAt!==null){
-      const tick=nextTick(emptyAt);
-      if(lastUpdateTs+e>=tick+(restockMin||15)*60){stock=restockQty;emptyAt=null;}
-    }
-  }
-
-  const stockNow=Math.round(Math.max(0,yataQty-decay*(nowTs-lastUpdateTs)));
-  const prediction={
-    stockAtNow:stockNow,
-    emptyAt:emptyAt?fmtH(emptyAt):null,
-    nextTick:emptyAt?fmtH(nextTick(emptyAt)):null,
-    restockWindow:emptyAt?{
-      early:fmtH(nextTick(emptyAt)+RDIST.p10*60),
-      mid:  fmtH(nextTick(emptyAt)+RDIST.p50*60),
-      late: fmtH(nextTick(emptyAt)+RDIST.p90*60),
-    }:null,
-  };
+  // Position dans le cycle TCT à l'arrivée
+  const tickBefore=prevTick(targetTs);
+  const tickNext=tickBefore+15*60;
+  const minAfterTick=(targetTs-tickBefore)/60;
+  const minToNextTick=(tickNext-targetTs)/60;
+  const cycleDuration=vidageMin+(restockMin||15);
 
   let proba,label;
-  if(stock>=restockQty*0.5){proba=0.90;label=`~${Math.round(stock)} ${t('enStock')}`;}
-  else if(stock>=100){proba=0.65;label=`~${Math.round(stock)} (${t('stockFaible')})`;}
-  else if(stock>0){proba=0.30;label=t('stockTresFaible');}
-  else if(emptyAt!==null){
-    const tick=nextTick(emptyAt);
-    const dt=(targetTs-tick)/60;
-    if(dt<0){proba=0.05;label=t('restockLointain');}
-    else if(dt<RDIST.p10){proba=0.10;label=t('restockLointain');}
-    else if(dt<RDIST.p25){proba=0.25;label=t('restockProb');}
-    else if(dt<RDIST.p50){proba=0.50;label=t('restockProb');}
-    else if(dt<RDIST.p75){proba=0.75;label=t('restockProb');}
-    else if(dt<RDIST.p90){proba=0.90;label=t('enStock');}
-    else{proba=0.95;label=t('enStock');}
-  }else{proba=0.95;label=`~${Math.round(stock)} ${t('enStock')}`;}
 
-  return{qty:Math.round(stock),proba,label,prediction};
+  if(item.type==='plushie'||item.type==='flower'){
+    // P(en phase de vidage = stock dispo) = vidageMin / cycleDuration
+    const probaInStockPhase=Math.min(0.95,vidageMin/cycleDuration);
+    // P(en phase vide mais restock déjà fait)
+    const probaVide=1-probaInStockPhase;
+    const probaRestockFait=probaRestockDone(minAfterTick);
+    proba=probaInStockPhase+probaVide*probaRestockFait;
+    proba=Math.min(0.97,Math.max(0.03,proba));
+
+    if(proba>=0.85) label=t('enStock');
+    else if(proba>=0.60) label=t('stockFaible');
+    else if(proba>=0.35) label=t('restockProb');
+    else label=t('restockLointain');
+
+    // Si données YATA fraîches (<30 min) et vol court (<60 min) : affiner
+    if(lastUpdateTs&&yataQty!==undefined&&(nowTs-lastUpdateTs)<1800&&(targetTs-nowTs)<3600){
+      const decay=restockQty/(vidageMin*60);
+      const stockNow=Math.max(0,yataQty-decay*(nowTs-lastUpdateTs));
+      const stockAtArrival=Math.max(0,stockNow-decay*(targetTs-nowTs));
+      if(stockAtArrival>restockQty*0.3){proba=0.90;label=`~${Math.round(stockAtArrival)} ${t('enStock')}`;}
+      else if(stockAtArrival>0){proba=0.50;label=`~${Math.round(stockAtArrival)} (${t('stockFaible')})`;}
+    }
+  } else {
+    proba=0.5; label=t('inconnu');
+  }
+
+  const prediction={
+    tickBefore:fmtH(tickBefore),
+    tickNext:fmtH(tickNext),
+    minAfterTick:Math.round(minAfterTick*10)/10,
+    minToNextTick:Math.round(minToNextTick*10)/10,
+    probaRestockFait:Math.round(probaRestockDone(minAfterTick)*100),
+    probaInStockPhase:Math.round(Math.min(0.95,vidageMin/cycleDuration)*100),
+    cycleDuration:Math.round(cycleDuration),
+    vidageMin,
+    restockMin:restockMin||15,
+    dataAge:lastUpdateTs?Math.round((nowTs-lastUpdateTs)/60):null,
+  };
+
+  return{qty:null,proba,label,prediction};
 }
 
 /* ── Génère la courbe de stock simulée pour un item/période ─── */
@@ -403,7 +423,7 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
 }
 
 /* ── Calcul ──────────────────────────────────────────────────── */
-function compute(){
+function compute(){try{
   const mode=document.getElementById('flightMode').value;
   const sessionMin=parseInt(document.getElementById('sessionHours').value)*60;
   const budgetCap=parseInt(document.getElementById('travelBudget').value)||0;
@@ -502,7 +522,7 @@ function compute(){
   runs.sort((a,b)=>b.totalProfit-a.totalProfit);
   window._runs=runs;
   renderResults(runs,mode);
-}
+  }catch(err){console.error('Compute error:',err);setBanner('warn','⚠️ Erreur de calcul: '+err.message);}}
 
 /* ── Rendu ───────────────────────────────────────────────────── */
 function renderResults(runs,mode){
@@ -514,21 +534,19 @@ function renderResults(runs,mode){
   }
   empty.style.display='none';
   const best=runs[0];
-  document.getElementById('gs_profit_label').textContent=t('profit');
-  document.getElementById('gs_pph_label').textContent=t('profitH');
-  document.getElementById('gs_cash_label').textContent=t('cashRequis');
-  document.getElementById('gs_trips_label').textContent=t('trips');
+  const _gs=(id,k)=>{const el=document.getElementById(id);if(el)el.textContent=t(k);};
+  _gs('gs_profit_label','profit');_gs('gs_pph_label','profitH');_gs('gs_cash_label','cashRequis');_gs('gs_trips_label','trips');
   document.getElementById('gs_profit').textContent='$'+fmt(best.totalProfit);
   document.getElementById('gs_pph').textContent='$'+fmt(best.profitPerHour)+'/h';
   document.getElementById('gs_cash').textContent='$'+fmt(best.cashRequired);
   document.getElementById('gs_trips').textContent=best.maxTrips;
   document.getElementById('globalStats').style.display='grid';
-  document.getElementById('section_bestrun').textContent=t('meilleureRun');
+  const _sb=document.getElementById('section_bestrun');if(_sb)_sb.textContent=t('meilleureRun');
   document.getElementById('bestRunTimeline').style.display='block';
   renderTimeline(best,0);
 
   if(runs.length>1){
-    document.getElementById('section_autres').textContent=t('autresOptions');
+    const _sa=document.getElementById('section_autres');if(_sa)_sa.textContent=t('autresOptions');
     document.getElementById('otherRuns').style.display='block';
     const list=document.getElementById('otherRunsList');list.innerHTML='';
     runs.slice(1,6).forEach((run,i)=>list.appendChild(buildCompactCard(run,i+1)));
@@ -592,14 +610,21 @@ function renderTimeline(run,rank){
     nodesHTML+=`<div class="tl-node" style="left:${n.px}px">${above?contentEl:''}${dotHtml}${!above?contentEl:''}</div>`;
   });
 
+  // Timeline dans le scroll
   document.getElementById('timelineInner').innerHTML=
     `<div class="tl-track-wrap" style="width:${totalW}px;position:relative;height:10px">
       <div class="tl-line" style="position:absolute;top:50%;left:0;right:0;height:2px;background:var(--border2);transform:translateY(-50%)"></div>
       ${nodesHTML}
-    </div>
-    <div style="margin-top:1rem;text-align:right">
-      <button class="btn-detail" onclick="showRunDetail(${rank})" style="padding:6px 16px;font-size:12px">${t('detail')} →</button>
     </div>`;
+
+  // Bouton Détail EN DEHORS du scroll
+  const existingBtn = document.getElementById('bestDetailBtn');
+  if(existingBtn) existingBtn.remove();
+  const detailBtn = document.createElement('div');
+  detailBtn.id = 'bestDetailBtn';
+  detailBtn.style.cssText = 'margin-top:.75rem;text-align:right';
+  detailBtn.innerHTML = `<button class="btn-detail" onclick="showRunDetail(${rank})" style="padding:6px 16px;font-size:12px">${t('detail')} →</button>`;
+  document.getElementById('bestRunTimeline').appendChild(detailBtn);
 }
 
 /* ── Cartes compactes ────────────────────────────────────────── */
@@ -733,15 +758,45 @@ function buildDetailHTML(run){
   const pred=mainItem?.stockPred;
   let predHTML='';
   if(pred){
+    // Couleur selon probabilité
+    const proba = Math.round(mainItem.stockProba*100);
+    const probaColor = proba>=75?'var(--green)':proba>=40?'#f5a623':'var(--red)';
+    const probaIcon = proba>=75?'✅':proba>=40?'⚠️':'❌';
+
+    // Scénario textuel basé sur le nouveau modèle TCT
+    const model = mainItem.modelKey ? STOCK_MODELS[mainItem.modelKey] : null;
+    const nCycles = model?.cycles || '?';
+    let scenario = '';
+
+    if(pred.tickBefore){
+      // Nouveau modèle : position dans le cycle TCT
+      scenario = `
+        Arrivée à <b style="color:#ef4444">${fmtH(firstTrip.arriveTs)}</b> —
+        soit <b>${pred.minAfterTick} min</b> après le tick TCT de <b style="color:#c8f542">${pred.tickBefore}</b>
+        (prochain tick : <b style="color:#c8f542">${pred.tickNext}</b> dans ${pred.minToNextTick} min).<br><br>
+        Cycle calibré sur <b>${nCycles} cycles mesurés</b> :
+        vidage ~${pred.vidageMin} min + restock ~${pred.restockMin} min = <b>cycle total ~${pred.cycleDuration} min</b>.<br><br>
+        <b style="color:${probaColor}">${pred.probaInStockPhase}%</b> de chance d'être en phase de vidage (stock présent).
+        Si vide : <b style="color:${probaColor}">${pred.probaRestockFait}%</b> de chance que le restock soit déjà fait
+        ${pred.minAfterTick} min après le tick
+        <span style="font-size:10px;color:var(--text3)">(distribution empirique 100 mesures · P50=9.4min · P90=14.7min)</span>.
+        ${pred.dataAge!==null?`<br><span style="font-size:10px;color:var(--text3)">Données YATA vieilles de ${pred.dataAge} min — ${pred.dataAge<30?'utilisées pour affiner':'trop vieilles pour vol long, modèle TCT utilisé'}</span>`:''}
+      `.trim().replace(/\n\s+/g,' ');
+    } else {
+      scenario = `Probabilité estimée à ${proba}% selon le cycle moyen (${nCycles} cycles mesurés).`;
+    }
+
     predHTML=`<div style="background:var(--bg3);border:1px solid var(--border);border-left:3px solid #4fc3f7;padding:1rem;margin-bottom:1rem;font-size:12px">
-      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#4fc3f7;margin-bottom:.6rem">${t('prediction')} — T1</div>
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:.4rem .75rem;align-items:baseline">
-        <span style="color:var(--text2)">${t('stockActuel')}</span><span>${pred.stockAtNow??'?'}</span>
-        ${pred.emptyAt?`<span style="color:var(--text2)">${t('stockZero')}</span><span>${pred.emptyAt}</span>`:''}
-        ${pred.nextTick?`<span style="color:var(--text2)">${t('prochainTick')}</span><span style="color:#c8f542">${pred.nextTick}</span>`:''}
-        ${pred.restockWindow?`<span style="color:var(--text2)">${t('restockAttendu')}</span><span style="color:#f5a623">${pred.restockWindow.early} – ${pred.restockWindow.late} <span style="font-size:10px;color:var(--text3)">(moy. ${pred.restockWindow.mid})</span></span>`:''}
-        <span style="color:var(--text2)">${t('arrivee')}</span><span style="color:#ef4444">${fmtH(firstTrip.arriveTs)}</span>
-        <span style="color:var(--text2)">${t('probaArr')}</span><span style="color:var(--green);font-weight:600">${Math.round(mainItem.stockProba*100)}% — ${mainItem.stockLabel}</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+        <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#4fc3f7">${t('prediction')} — T1 · arrivée ${fmtH(firstTrip.arriveTs)}</span>
+        <span style="font-size:16px;font-weight:700;color:${probaColor}">${probaIcon} ${proba}%</span>
+      </div>
+      <p style="color:var(--text2);line-height:1.7;margin-bottom:.5rem">${scenario}</p>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:.5rem">
+        <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden">
+          <div style="width:${proba}%;height:100%;background:${probaColor};border-radius:3px;transition:width .3s"></div>
+        </div>
+        <span style="font-size:11px;color:${probaColor};font-weight:600;min-width:32px">${proba}%</span>
       </div>
     </div>`;
   }
