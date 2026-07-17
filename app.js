@@ -564,13 +564,16 @@ function renderResults(runs,mode){
 function renderTimeline(run,rank){
   const sessionEnd=run.departTs+parseInt(document.getElementById('sessionHours').value)*3600;
   const totalDuration=sessionEnd-run.departTs;
-  const NODE_W=140; // largeur fixe par noeud en px
-  const TRIP_W=280; // largeur par trip (aller + retour)
-  const totalW=Math.max(900,(run.maxTrips*TRIP_W)+NODE_W*2);
+  const NODE_W=140;
+  const TRIP_W=280;
+  // Limiter à 3 trips affichés max
+  const DISPLAY_TRIPS=Math.min(3,run.maxTrips);
+  const totalW=Math.max(700,(DISPLAY_TRIPS*TRIP_W)+NODE_W*2);
 
   const nodes=[];
   nodes.push({type:'depart',ts:run.departTs,label:t('depart_label')});
-  run.trips.forEach((trip,i)=>{
+  // N'afficher que les DISPLAY_TRIPS premiers trips
+  run.trips.slice(0,DISPLAY_TRIPS).forEach((trip,i)=>{
     nodes.push({type:'arrive',ts:trip.arriveTs,country:run.country,trip:i+1,items:run.breakdown,profit:run.breakdown.reduce((s,b)=>s+b.grossProfit,0)});
     if(trip.isLastAbroad)nodes.push({type:'abroad',ts:trip.arriveTs+5*60,label:t('resteEtranger')});
     else nodes.push({type:'return',ts:trip.landTs,label:`${t('retour')} T${i+1}`});
@@ -617,13 +620,16 @@ function renderTimeline(run,rank){
       ${nodesHTML}
     </div>`;
 
-  // Bouton Détail EN DEHORS du scroll
+  // Footer : "+ X trips similaires" + bouton Détail
   const existingBtn = document.getElementById('bestDetailBtn');
   if(existingBtn) existingBtn.remove();
   const detailBtn = document.createElement('div');
   detailBtn.id = 'bestDetailBtn';
-  detailBtn.style.cssText = 'margin-top:.75rem;text-align:right';
-  detailBtn.innerHTML = `<button class="btn-detail" onclick="showRunDetail(${rank})" style="padding:6px 16px;font-size:12px">${t('detail')} →</button>`;
+  detailBtn.style.cssText = 'margin-top:.75rem;display:flex;align-items:center;justify-content:space-between';
+  const moreTrips = run.maxTrips > DISPLAY_TRIPS
+    ? `<span style="font-size:12px;color:var(--text3)">+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>`
+    : '<span></span>';
+  detailBtn.innerHTML = `${moreTrips}<button class="btn-detail" onclick="showRunDetail(${rank})" style="padding:6px 16px;font-size:12px">${t('detail')} →</button>`;
   document.getElementById('bestRunTimeline').appendChild(detailBtn);
 }
 
