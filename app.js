@@ -663,10 +663,10 @@ function renderTimeline(run,rank){
   const sessionEnd=run.departTs+parseInt(document.getElementById('sessionHours').value)*3600;
   const totalDuration=sessionEnd-run.departTs;
   const NODE_W=140;
-  const TRIP_W=280;
-  // Limiter à 3 trips affichés max
-  const DISPLAY_TRIPS=Math.min(3,run.maxTrips);
-  const totalW=Math.max(700,(DISPLAY_TRIPS*TRIP_W)+NODE_W*2);
+  // Max 4 trips affichés, étalés sur toute la largeur du conteneur
+  const DISPLAY_TRIPS=Math.min(4,run.maxTrips);
+  // Largeur = 100% du conteneur (pas de scroll horizontal pour la timeline)
+  const totalW=0; // 0 = on utilise % relatifs
 
   const nodes=[];
   nodes.push({type:'depart',ts:run.departTs,label:t('depart_label')});
@@ -718,14 +718,15 @@ function renderTimeline(run,rank){
       ${nodesHTML}
     </div>`;
 
-  // Footer : "+ X trips identiques" (pas de bouton Détail, tout est affiché en dessous)
+  // Footer : "+ X trips" si plus de 4
   const existingBtn = document.getElementById('bestDetailBtn');
   if(existingBtn) existingBtn.remove();
   if(run.maxTrips > DISPLAY_TRIPS){
     const footer = document.createElement('div');
     footer.id = 'bestDetailBtn';
-    footer.style.cssText = 'margin-top:.5rem;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:6px';
-    footer.innerHTML = `<span style="display:flex;gap:3px">${Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill('<span style="width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('')}</span> + ${run.maxTrips-DISPLAY_TRIPS} trips identiques`;
+    footer.style.cssText = 'padding:.5rem 1.5rem;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)';
+    const dots=Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill(0).map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('');
+    footer.innerHTML = `<span style="display:flex;gap:3px;align-items:center">${dots}</span><span>+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>`;
     document.getElementById('bestRunSection')?.appendChild(footer);
   }
 }
@@ -868,8 +869,8 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
       ${item.name}
       ${model?`<span style="font-size:9px;color:var(--text3);font-weight:400;margin-left:8px">${modelInfo}</span>`:''}
     </div>
-    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:.5rem .75rem;overflow-x:auto">
-      <svg viewBox="0 0 ${W} ${H+16}" width="${W}" height="${H+16}" style="display:block">
+    <div class="stock-chart-wrap">
+      <svg viewBox="0 0 ${W} ${H+16}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;min-width:300px">
         <text x="2" y="9" font-size="8" fill="rgba(255,255,255,.2)">${RESTOCK}</text>
         <text x="2" y="${H-1}" font-size="8" fill="rgba(255,255,255,.2)">0</text>
         ${ticks}${evs}
@@ -886,8 +887,8 @@ function buildDetailHTML(run){
   const sessionMin=parseInt(document.getElementById('sessionHours').value)*60;
   const startTs=run.departTs;
   const endTs=run.departTs+sessionMin*60;
-  const W=580;
-  const H=100;
+  const W=900;  // sera adapté par le viewBox SVG responsive
+  const H=120;
 
   // Graphes pour chaque item du breakdown
   const chartsHTML=run.breakdown.map(b=>{
