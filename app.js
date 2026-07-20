@@ -1252,14 +1252,9 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     if (!item) return '';
     const hKey = getHistoricalKey(item);
     const hist = HISTORICAL_DATA?.[hKey];
-    // Utiliser buildItemChart pour avoir les vraies courbes historiques
-    const segPts = buildItemChart(item, seg.yataQtyNow, seg.lastUpdate || 0, seg.segStart, seg.segEnd, [], segW, H);
-    // buildItemChart retourne du HTML, on doit utiliser les pts directement
-    // → utiliser buildHistoricalCurve à la place
+    const RESTOCK = item.restockQty || 2500;
+    const segW = Math.max(10, Math.round((seg.segEnd - seg.segStart) / Math.max(endTs - startTs, 1) * W));
     const pts = buildHistoricalCurve(item, seg.yataQtyNow, seg.lastUpdate || 0, seg.segStart, seg.segEnd);
-    const RESTOCK = item.restockQty;
-    const segW = Math.round((seg.segEnd - seg.segStart) / (endTs - startTs) * W);
-    if (segW < 10) return '';
 
     function tsX(ts){ 
       const v = (seg.segEnd - seg.segStart) > 0 ? ((ts - seg.segStart) / (seg.segEnd - seg.segStart) * segW) : 0;
