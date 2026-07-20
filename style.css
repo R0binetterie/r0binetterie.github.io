@@ -33,22 +33,69 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 1re
 .btn-refresh.loading svg{animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ── Settings bar (accordéon horizontal) ── */
-.settings-bar{background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:52px;z-index:100;max-width:100%}
+/* ── Settings navbar ── */
+.settings-navbar{background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:52px;z-index:200}
+.snav-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;padding:0 1rem;gap:2px;height:44px;overflow-x:auto;scrollbar-width:none}
+.snav-inner::-webkit-scrollbar{display:none}
 
-.acc-block{border-bottom:1px solid var(--border)}
-.acc-block:last-child{border-bottom:none}
+.snav-tab{padding:6px 14px;background:transparent;border:none;color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;border-radius:8px;transition:all .15s;white-space:nowrap;font-family:inherit;flex-shrink:0}
+.snav-tab:hover{background:var(--bg3);color:var(--text)}
+.snav-tab.active{background:var(--blue-bg);color:var(--accent)}
 
-.acc-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;padding:.65rem 1rem;background:none;border:none;color:var(--text);font-size:13px;font-weight:500;cursor:pointer;text-align:left;font-family:inherit;transition:background .15s}
-.acc-trigger:hover{background:var(--bg3)}
-.acc-arrow{font-size:10px;color:var(--text3);transition:transform .2s;display:inline-block}
-.acc-block.open .acc-arrow{transform:rotate(180deg)}
-.acc-block.open .acc-trigger{color:var(--accent)}
+.snav-capacity{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;padding:4px 10px;border-radius:8px;flex-shrink:0;white-space:nowrap}
+.snav-capacity:hover{background:var(--bg3)}
+.snav-capacity strong{font-size:16px;font-weight:700;color:var(--accent)}
 
-.acc-content{display:none;padding:.75rem 1rem 1rem;border-top:1px solid var(--border)}
-.acc-block.open .acc-content{display:block}
+.btn-recalc-inline{display:flex;align-items:center;gap:5px;padding:6px 14px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;margin-left:6px}
+.btn-recalc-inline:hover{background:var(--accent2)}
+.btn-recalc-inline svg{flex-shrink:0}
 
-.acc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem 1.25rem}
+/* ── Overlay ── */
+.dropdown-overlay{display:none;position:fixed;inset:0;z-index:150;background:transparent}
+.dropdown-overlay.active{display:block}
+
+/* ── Dropdown popover ── */
+.snav-dropdown{
+  display:none;
+  position:fixed;
+  top:97px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:300;
+  background:var(--bg2);
+  border:1px solid var(--border2);
+  border-radius:16px;
+  box-shadow:0 8px 32px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04);
+  padding:1.25rem;
+  min-width:320px;
+  max-width:min(680px, calc(100vw - 2rem));
+  max-height:calc(100vh - 120px);
+  overflow-y:auto;
+}
+.snav-dropdown.open{display:block;animation:ddFadeIn .15s ease}
+@keyframes ddFadeIn{from{opacity:0;transform:translateX(-50%) translateY(-6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+/* Petite flèche en haut du dropdown */
+.dd-arrow{
+  position:absolute;
+  top:-7px;
+  left:50%;
+  transform:translateX(-50%);
+  width:14px;height:14px;
+  background:var(--bg2);
+  border-left:1px solid var(--border2);
+  border-top:1px solid var(--border2);
+  border-radius:3px 0 0 0;
+  transform:translateX(-50%) rotate(45deg);
+}
+
+.dd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.85rem 1.25rem}
+
+.dd-capacity{grid-column:1/-1}
+.capacity-chip{background:var(--blue-bg);border:1px solid rgba(79,126,248,.2);border-radius:10px;padding:.6rem .85rem;display:flex;align-items:baseline;gap:8px}
+.capacity-chip span:first-child{font-size:11px;color:var(--text2)}
+#capacityDisplay2{font-size:22px;font-weight:700;color:var(--accent)}
+.capacity-sub{font-size:10px;color:var(--text3)}
 
 /* ── Fields ── */
 .field-group{display:flex;flex-direction:column;gap:4px}

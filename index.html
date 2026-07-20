@@ -65,228 +65,201 @@
   </div>
 </header>
 
-<!-- SETTINGS BAR (accordéon) -->
-<div class="settings-bar">
-
-  <!-- Bloc Profil joueur -->
-  <div class="acc-block" id="acc-profil">
-    <button class="acc-trigger" onclick="toggleAcc('profil')">
-      <span>🎒 <span data-i18n="profil">Profil joueur</span></span>
-      <span class="acc-arrow">▾</span>
+<!-- NAVBAR SETTINGS -->
+<div class="settings-navbar" id="settingsNavbar">
+  <div class="snav-inner">
+    <button class="snav-tab" onclick="openDropdown('profil')" id="tab-profil">
+      🎒 <span data-i18n="profil">Profil</span>
     </button>
-    <div class="acc-content">
-      <div class="acc-grid">
+    <button class="snav-tab" onclick="openDropdown('session')" id="tab-session">
+      ⏱ <span data-i18n="session">Session</span>
+    </button>
+    <button class="snav-tab" onclick="openDropdown('filtres')" id="tab-filtres">
+      🔍 <span data-i18n="filtres">Filtres</span>
+    </button>
+    <button class="snav-tab" onclick="openDropdown('api')" id="tab-api">
+      🔑 <span data-i18n="cleApi">API</span>
+    </button>
+    <div class="snav-capacity" onclick="openDropdown('profil')">
+      <span data-i18n="capaciteBase">Capacité</span>
+      <strong id="capacityDisplay">19</strong>
+    </div>
+    <button class="btn-recalc-inline" onclick="scheduleRecompute()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      <span data-i18n="recalculer">Recalculer</span>
+    </button>
+  </div>
+</div>
 
-        <!-- Mode de vol -->
-        <div class="field-group">
-          <label data-i18n="modeVol">Mode de vol</label>
-          <select id="flightMode" onchange="updateCapacity();scheduleRecompute()" data-i18n-select="flightMode">
-            <option value="standard">Standard</option>
-            <option value="airstrip" selected>Airstrip (−30%)</option>
-            <option value="wlt">WLT (−50%)</option>
-            <option value="business">Business Class (−70%)</option>
-          </select>
-          <p class="hint" data-i18n="modeVolHint">Airstrip = PI avec pilote. WLT = parts marché boursier. BC = ticket ou Lingerie 10★.</p>
-        </div>
+<!-- DROPDOWNS -->
+<div class="dropdown-overlay" id="dropdownOverlay" onclick="closeAllDropdowns()"></div>
 
-        <!-- Valise -->
-        <div class="field-group">
-          <label data-i18n="valise">Valise</label>
-          <select id="suitcase" onchange="updateCapacity();scheduleRecompute()">
-            <option value="0" data-i18n="aucune">Aucune</option>
-            <option value="1">Small (+1)</option>
-            <option value="2">Medium (+2)</option>
-            <option value="3" selected>Large (+3)</option>
-          </select>
-        </div>
-
-        <!-- Faction Excursion -->
-        <div class="field-group">
-          <label data-i18n="bonusFaction">Faction Excursion</label>
-          <div class="slider-row">
-            <input type="range" id="factionBonus" min="0" max="10" value="0" step="1"
-              oninput="document.getElementById('factionBonusVal').textContent='+'+this.value;updateCapacity();scheduleRecompute()"/>
-            <span id="factionBonusVal" class="slider-val">+0</span>
-          </div>
-        </div>
-
-        <!-- Job -->
-        <div class="field-group">
-          <label data-i18n="job">Job actuel</label>
-          <select id="jobType" onchange="updateJobUI();updateCapacity();scheduleRecompute()">
-            <option value="none" data-i18n="aucun">Aucun / autre</option>
-            <option value="lingerie3">Lingerie Store 3★ (+2)</option>
-            <option value="lingerie10">Lingerie Store 10★ (+4, BC gratuite)</option>
-            <option value="cruise3">Cruise Line 3★ (+2)</option>
-            <option value="cruise10">Cruise Line 10★ (+5)</option>
-            <option value="toy7">Toy Shop 7★ (+5 peluches)</option>
-            <option value="flower7">Flower Shop 7★ (+5 fleurs)</option>
-          </select>
-        </div>
-
-        <!-- Livre Smuggling -->
-        <div class="field-group">
-          <label data-i18n="livreSmuggling">Livre "Smuggling for Beginners"</label>
-          <select id="smuggling" onchange="updateCapacity();scheduleRecompute()">
-            <option value="0" data-i18n="nonActif">Non actif</option>
-            <option value="10" data-i18n="actif">Actif (+10, 31 jours)</option>
-          </select>
-        </div>
-
-        <!-- Livre Mailing -->
-        <div class="field-group">
-          <label data-i18n="livreMailing">Livre "Mailing Yourself Abroad"</label>
-          <select id="mailing" onchange="scheduleRecompute()">
-            <option value="0" data-i18n="nonActif">Non actif</option>
-            <option value="1" data-i18n="actif">Actif (−25% temps vol, 31 jours)</option>
-          </select>
-        </div>
-
-        <!-- Capacité résultante -->
-        <div class="field-group capacity-display">
-          <label data-i18n="capaciteBase">Capacité totale</label>
-          <div class="capacity-chip">
-            <span id="capacityDisplay">19</span>
-            <span class="capacity-sub" id="capacityBreakdown"></span>
-          </div>
-        </div>
-
+<!-- Profil -->
+<div class="snav-dropdown" id="dd-profil">
+  <div class="dd-arrow"></div>
+  <div class="dd-grid">
+    <div class="field-group">
+      <label data-i18n="modeVol">Mode de vol</label>
+      <select id="flightMode" onchange="updateCapacity();scheduleRecompute()">
+        <option value="standard">Standard (base 10 items)</option>
+        <option value="airstrip" selected>Airstrip −30% (base 15)</option>
+        <option value="wlt">WLT −50% (base 15)</option>
+        <option value="business">Business Class −70% (base 15)</option>
+      </select>
+      <p class="hint">PI avec pilote / parts WLT / ticket BC ou Lingerie 10★</p>
+    </div>
+    <div class="field-group">
+      <label data-i18n="valise">Valise</label>
+      <select id="suitcase" onchange="updateCapacity();scheduleRecompute()">
+        <option value="0">Aucune</option>
+        <option value="1">Small (+1)</option>
+        <option value="2">Medium (+2)</option>
+        <option value="3" selected>Large (+3)</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label data-i18n="bonusFaction">Faction Excursion</label>
+      <div class="slider-row">
+        <input type="range" id="factionBonus" min="0" max="10" value="0" step="1"
+          oninput="document.getElementById('factionBonusVal').textContent='+'+this.value;updateCapacity();scheduleRecompute()"/>
+        <span id="factionBonusVal" class="slider-val">+0</span>
+      </div>
+    </div>
+    <div class="field-group">
+      <label data-i18n="job">Job actuel</label>
+      <select id="jobType" onchange="updateJobUI();updateCapacity();scheduleRecompute()">
+        <option value="none">Aucun / autre</option>
+        <option value="lingerie3">Lingerie Store 3★ (+2)</option>
+        <option value="lingerie10">Lingerie Store 10★ (+4, BC gratuite)</option>
+        <option value="cruise3">Cruise Line 3★ (+2)</option>
+        <option value="cruise10">Cruise Line 10★ (+5)</option>
+        <option value="toy7">Toy Shop 7★ (+5 peluches)</option>
+        <option value="flower7">Flower Shop 7★ (+5 fleurs)</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label>"Smuggling for Beginners"</label>
+      <select id="smuggling" onchange="updateCapacity();scheduleRecompute()">
+        <option value="0">Non actif</option>
+        <option value="10">Actif (+10, 31 jours)</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label>"Mailing Yourself Abroad"</label>
+      <select id="mailing" onchange="scheduleRecompute()">
+        <option value="0">Non actif</option>
+        <option value="1">Actif (−25% vol, 31 jours)</option>
+      </select>
+    </div>
+    <div class="field-group dd-capacity">
+      <div class="capacity-chip">
+        <span data-i18n="capaciteBase">Total</span>
+        <strong id="capacityDisplay2">19</strong>
+        <span class="capacity-sub" id="capacityBreakdown"></span>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- Bloc Session -->
-  <div class="acc-block" id="acc-session">
-    <button class="acc-trigger" onclick="toggleAcc('session')">
-      <span>⏱ <span data-i18n="session">Session de jeu</span></span>
-      <span class="acc-arrow">▾</span>
-    </button>
-    <div class="acc-content">
-      <div class="acc-grid">
+<!-- Session -->
+<div class="snav-dropdown" id="dd-session">
+  <div class="dd-arrow"></div>
+  <div class="dd-grid">
+    <div class="field-group">
+      <label data-i18n="depart">Heure de départ</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn-time active" id="btnNow" onclick="setDepartNow()" data-i18n="maintenant">Maintenant</button>
+        <input type="time" id="departTime" onchange="setDepartCustom()" style="flex:1"/>
+      </div>
+    </div>
+    <div class="field-group">
+      <label data-i18n="duree">Durée de session</label>
+      <div class="slider-row">
+        <input type="range" id="sessionHours" min="1" max="24" value="8" step="1"
+          oninput="document.getElementById('sessionHoursVal').textContent=this.value+'h';scheduleRecompute()"/>
+        <span id="sessionHoursVal" class="slider-val">8h</span>
+      </div>
+    </div>
+    <div class="field-group">
+      <label data-i18n="finSession">Fin de session</label>
+      <select id="finishAbroad" onchange="scheduleRecompute()">
+        <option value="no">Retour à Torn obligatoire</option>
+        <option value="yes">Peut finir à l'étranger</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label data-i18n="nbMaxTrips">Nombre max de trips</label>
+      <select id="maxTrips" onchange="scheduleRecompute()">
+        <option value="999">Pas de limite</option>
+        <option value="1">1 trip</option>
+        <option value="2">2 trips max</option>
+        <option value="3">3 trips max</option>
+        <option value="5">5 trips max</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label data-i18n="longueurMin">Vol minimum</label>
+      <div class="slider-row">
+        <input type="range" id="minFlightTime" min="0" max="310" value="0" step="10"
+          oninput="updateFlightLabel();scheduleRecompute()"/>
+        <span id="minFlightLabel" class="slider-val" style="min-width:50px">Tous</span>
+      </div>
+      <p class="hint" id="minFlightHint"></p>
+    </div>
+  </div>
+</div>
 
-        <div class="field-group">
-          <label data-i18n="depart">Heure de départ</label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <button class="btn-time active" id="btnNow" onclick="setDepartNow()" data-i18n="maintenant">Maintenant</button>
-            <input type="time" id="departTime" onchange="setDepartCustom()" style="flex:1"/>
-          </div>
-        </div>
+<!-- Filtres -->
+<div class="snav-dropdown" id="dd-filtres">
+  <div class="dd-arrow"></div>
+  <div class="dd-grid">
+    <div class="field-group">
+      <label data-i18n="typesItems">Types d'items</label>
+      <div class="checkbox-group">
+        <label class="cb-label"><input type="checkbox" id="f_plushie" checked onchange="scheduleRecompute()"><span>🧸 Peluches</span></label>
+        <label class="cb-label"><input type="checkbox" id="f_flower"  checked onchange="scheduleRecompute()"><span>🌸 Fleurs</span></label>
+        <label class="cb-label"><input type="checkbox" id="f_drug"    checked onchange="scheduleRecompute()"><span>💊 Drogues</span></label>
+      </div>
+    </div>
+    <div class="field-group">
+      <label data-i18n="fraicheur">Fraîcheur YATA</label>
+      <select id="freshnessFilter" onchange="scheduleRecompute()">
+        <option value="999">Toutes</option>
+        <option value="4" selected>Moins de 4h</option>
+        <option value="2">Moins de 2h</option>
+        <option value="1">Moins de 1h</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label data-i18n="budget">Budget max A/R</label>
+      <select id="travelBudget" onchange="scheduleRecompute()">
+        <option value="0">Pas de limite</option>
+        <option value="50000">$50 000</option>
+        <option value="100000">$100 000</option>
+        <option value="200000">$200 000</option>
+      </select>
+    </div>
+    <div class="field-group" style="grid-column:1/-1">
+      <label data-i18n="paysExclus">Pays exclus</label>
+      <div id="countryFilters" class="country-filter-grid"></div>
+    </div>
+  </div>
+</div>
 
-        <div class="field-group">
-          <label data-i18n="duree">Durée de session</label>
-          <div class="slider-row">
-            <input type="range" id="sessionHours" min="1" max="24" value="8" step="1"
-              oninput="document.getElementById('sessionHoursVal').textContent=this.value+'h';scheduleRecompute()"/>
-            <span id="sessionHoursVal" class="slider-val">8h</span>
-          </div>
-        </div>
-
-        <div class="field-group">
-          <label data-i18n="finSession">Fin de session</label>
-          <select id="finishAbroad" onchange="scheduleRecompute()">
-            <option value="no" data-i18n="retourOblig">Retour à Torn obligatoire</option>
-            <option value="yes" data-i18n="finEtranger">Peut finir à l'étranger</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label data-i18n="nbMaxTrips">Nombre max de trips</label>
-          <select id="maxTrips" onchange="scheduleRecompute()">
-            <option value="999" data-i18n="tripMaxNone">Pas de limite</option>
-            <option value="1">1 trip</option>
-            <option value="2">2 trips max</option>
-            <option value="3">3 trips max</option>
-            <option value="5">5 trips max</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label data-i18n="longueurMin">Vol minimum</label>
-          <div class="slider-row">
-            <input type="range" id="minFlightTime" min="0" max="310" value="0" step="10"
-              oninput="updateFlightLabel();scheduleRecompute()"/>
-            <span id="minFlightLabel" class="slider-val" style="min-width:50px">Tous</span>
-          </div>
-          <p class="hint" id="minFlightHint"></p>
-        </div>
-
+<!-- API -->
+<div class="snav-dropdown" id="dd-api">
+  <div class="dd-arrow"></div>
+  <div class="dd-grid">
+    <div class="field-group" style="grid-column:1/-1">
+      <label data-i18n="cleApi">Clé API Torn (Public Only)</label>
+      <input type="password" id="apiKey" placeholder="Clé publique (optionnel)" autocomplete="off"/>
+      <p class="hint" style="margin-top:4px">Pour les prix marché temps réel.</p>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <button class="btn-sm" onclick="saveKey()">Enregistrer</button>
+        <span id="keyStatus" class="key-status"></span>
       </div>
     </div>
   </div>
-
-  <!-- Bloc Filtres -->
-  <div class="acc-block" id="acc-filtres">
-    <button class="acc-trigger" onclick="toggleAcc('filtres')">
-      <span>🔍 <span data-i18n="filtres">Filtres</span></span>
-      <span class="acc-arrow">▾</span>
-    </button>
-    <div class="acc-content">
-      <div class="acc-grid">
-
-        <div class="field-group">
-          <label data-i18n="typesItems">Types d'items</label>
-          <div class="checkbox-group">
-            <label class="cb-label"><input type="checkbox" id="f_plushie" checked onchange="scheduleRecompute()"><span data-i18n="peluches">🧸 Peluches</span></label>
-            <label class="cb-label"><input type="checkbox" id="f_flower"  checked onchange="scheduleRecompute()"><span data-i18n="fleurs">🌸 Fleurs</span></label>
-            <label class="cb-label"><input type="checkbox" id="f_drug"    checked onchange="scheduleRecompute()"><span data-i18n="drogues">💊 Drogues</span></label>
-          </div>
-        </div>
-
-        <div class="field-group">
-          <label data-i18n="fraicheur">Fraîcheur données YATA</label>
-          <select id="freshnessFilter" onchange="scheduleRecompute()" data-i18n-select="freshness">
-            <option value="999">Toutes</option>
-            <option value="4" selected>Moins de 4h</option>
-            <option value="2">Moins de 2h</option>
-            <option value="1">Moins de 1h</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label data-i18n="paysExclus">Pays exclus</label>
-          <div id="countryFilters" class="country-filter-grid"></div>
-        </div>
-
-        <div class="field-group">
-          <label data-i18n="budget">Budget max par A/R</label>
-          <select id="travelBudget" onchange="scheduleRecompute()">
-            <option value="0" data-i18n="pasDeLimite">Pas de limite</option>
-            <option value="50000">$50 000</option>
-            <option value="100000">$100 000</option>
-            <option value="200000">$200 000</option>
-          </select>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- Bloc API -->
-  <div class="acc-block" id="acc-api">
-    <button class="acc-trigger" onclick="toggleAcc('api')">
-      <span>🔑 <span data-i18n="cleApi">Clé API Torn</span></span>
-      <span class="acc-arrow">▾</span>
-    </button>
-    <div class="acc-content">
-      <div class="acc-grid">
-        <div class="field-group" style="grid-column:1/-1">
-          <input type="password" id="apiKey" data-i18n-ph="clePublique" placeholder="Clé publique (optionnel)" autocomplete="off"/>
-          <p class="hint" data-i18n="cleHint">Niveau "Public Only" — pour les prix marché temps réel.</p>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-            <button class="btn-sm" onclick="saveKey()" data-i18n="enregistrer">Enregistrer</button>
-            <span id="keyStatus" class="key-status"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Bouton Recalculer -->
-  <button class="btn-recalc" onclick="scheduleRecompute()">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-    <span data-i18n="recalculer">Recalculer</span>
-  </button>
-
 </div>
 
 <main>

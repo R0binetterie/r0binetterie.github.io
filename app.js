@@ -285,6 +285,7 @@ function updateJobUI(){
 function updateCapacity(){
   const cap=getBaseCapacity();
   document.getElementById('capacityDisplay').textContent=cap;
+  const d2=document.getElementById('capacityDisplay2');if(d2)d2.textContent=cap;
   const mode=document.getElementById('flightMode').value;
   const base=(mode==='standard'?10:15);
   const suit=parseInt(document.getElementById('suitcase').value)||0;
@@ -303,9 +304,41 @@ function updateCapacity(){
   document.getElementById('capacityBreakdown').textContent='('+parts.join(' ')+')';
 }
 
-function toggleAcc(id){
-  const block=document.getElementById('acc-'+id);
-  block.classList.toggle('open');
+function openDropdown(id){
+  const allDDs=['profil','session','filtres','api'];
+  // Fermer si déjà ouvert (toggle)
+  const dd=document.getElementById('dd-'+id);
+  const wasOpen=dd.classList.contains('open');
+  // Fermer tous
+  allDDs.forEach(n=>{
+    document.getElementById('dd-'+n).classList.remove('open');
+    document.getElementById('tab-'+n)?.classList.remove('active');
+  });
+  document.getElementById('dropdownOverlay').classList.remove('active');
+  if(!wasOpen){
+    dd.classList.add('open');
+    document.getElementById('tab-'+id)?.classList.add('active');
+    document.getElementById('dropdownOverlay').classList.add('active');
+    // Positionner la flèche sous le tab cliqué
+    const tab=document.getElementById('tab-'+id);
+    if(tab){
+      const rect=tab.getBoundingClientRect();
+      const ddRect=dd.getBoundingClientRect();
+      const centerX=rect.left+rect.width/2;
+      const arrow=dd.querySelector('.dd-arrow');
+      if(arrow){
+        const ddLeft=window.innerWidth/2-ddRect.width/2;
+        arrow.style.left=Math.max(20,Math.min(ddRect.width-20,centerX-ddLeft))+'px';
+      }
+    }
+  }
+}
+function closeAllDropdowns(){
+  ['profil','session','filtres','api'].forEach(n=>{
+    document.getElementById('dd-'+n)?.classList.remove('open');
+    document.getElementById('tab-'+n)?.classList.remove('active');
+  });
+  document.getElementById('dropdownOverlay')?.classList.remove('active');
 }
 
 function getFlightTime(country,mode){
