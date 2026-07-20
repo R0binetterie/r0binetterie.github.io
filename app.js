@@ -1077,10 +1077,6 @@ function getHistoricalKey(item){
 }
 
 function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
-  // Essayer d'abord les données historiques réelles
-  const hKey=getHistoricalKey(item);
-  const hist=HISTORICAL_DATA?.[hKey];
-
   // Utiliser les vraies courbes JSON si disponibles, ancrées sur le stock YATA actuel
   const hKey = getHistoricalKey(item);
   const hist = HISTORICAL_DATA?.[hKey];
