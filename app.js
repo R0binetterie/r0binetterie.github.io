@@ -467,13 +467,19 @@ function computeEsperance(item, yataQty, lastUpdateTs, targetTs, capacity) {
   else if (esperance >= 0.3) label = t('restockProb');
   else label = t('restockLointain');
 
+  const cycleDuration = (item.vidageMin || 40) + (item.restockMin || 15);
   const prediction = {
     stockEst,
     tickBefore: fmtH(tickBefore),
     tickNext: fmtH(tickBefore + 15*60),
     minAfterTick: Math.round(minAfterTick * 10) / 10,
+    minToNextTick: Math.round((tickBefore + 15*60 - targetTs) / 60 * 10) / 10,
     probaRestockFait: Math.round(probaR * 100),
+    probaInStockPhase: Math.round(Math.min(0.95, (item.vidageMin||40) / cycleDuration) * 100),
     esperancePct: Math.round(esperance * 100),
+    vidageMin: item.vidageMin || '~40',
+    restockMin: item.restockMin || '~15',
+    cycleDuration: Math.round(cycleDuration),
     dataAge: lastUpdateTs ? Math.round((Date.now()/1000 - lastUpdateTs) / 60) : null,
   };
 
@@ -1036,7 +1042,7 @@ function buildHistoricalCurve(item, hKey, hist, yataQty, lastUpdateTs, startTs, 
   const windowDuration = endTs - startTs;
 
   // Pas de données historiques → fallback simulation
-  if (!hist || !hist.pts || hist.pts.length < 5) {
+  if (!hist || !hist.pts || hist.pts.length < 5 || !item.vidageMin) {
     return generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
   }
 
@@ -1048,24 +1054,16 @@ function buildHistoricalCurve(item, hKey, hist, yataQty, lastUpdateTs, startTs, 
   // Trouver le point d'ancrage : moment dans l'historique où qty ≈ yataQty
   // Si pas de données YATA fraîches → partir du début du cycle historique
   let anchorIdx = 0;
-  if (yataQty !== null && yataQty !== undefined && lastUpdateTs) {
-    const nowTs = Date.now() / 1000;
-    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
-
-    // Chercher dans l'historique le point qui correspond le mieux au stock actuel
-    // On cherche le point avec qty le plus proche de yataQty dans une phase descendante
+  if (yataQty !== null && yataQty !== undefined) {
     let bestDiff = Infinity;
     for (let i = 0; i < rawPts.length; i++) {
       const diff = Math.abs(rawPts[i][1] - yataQty);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        anchorIdx = i;
-      }
+      if (diff < bestDiff) { bestDiff = diff; anchorIdx = i; }
     }
   }
-
-  // Décaler les timestamps : anchorIdx correspond à startTs
-  const tsOffset = startTs - rawPts[anchorIdx][0];
+  // Décaler pour que anchorIdx corresponde à lastUpdateTs (ou startTs si pas de données)
+  const anchorRealTs2 = (lastUpdateTs && lastUpdateTs > 0) ? lastUpdateTs : startTs;
+  const tsOffset = anchorRealTs2 - rawPts[anchorIdx][0];
   let basePts = rawPts.map(p => ({ ts: p[0] + tsOffset, qty: p[1] }));
 
   // Ajouter des cycles si la session dépasse la durée de l'historique
@@ -1097,7 +1095,7 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
   const hist = HISTORICAL_DATA?.[hKey];
   let pts;
 
-  if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){
+  if(hist && hist.pts && hist.pts.length >= 5){
     const rawPts = hist.pts.map(p => [p[0], p[1]]);
     const histMax = hist.max || item.restockQty;
     const windowDur = endTs - startTs;
@@ -1108,17 +1106,19 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
     const nowTs = Date.now()/1000;
     const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
 
-    // Chercher le point historique le plus proche de yataQty
+    // Ancrer sur yataQty si disponible, sinon utiliser le début de l'historique
     let bestIdx = 0;
-    let bestDiff = Infinity;
-    rawPts.forEach((p, i) => {
-      const diff = Math.abs(p[1] - yataQty);
-      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
-    });
-
-    // Décaler les données historiques pour que rawPts[bestIdx] corresponde à lastUpdateTs
+    if(yataQty !== null && yataQty !== undefined) {
+      let bestDiff = Infinity;
+      rawPts.forEach((p, i) => {
+        const diff = Math.abs(p[1] - yataQty);
+        if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+      });
+    }
+    // Décaler pour que rawPts[bestIdx] corresponde à startTs (ou lastUpdateTs si dispo)
     const anchorHistTs = rawPts[bestIdx][0];
-    const offset = lastUpdateTs - anchorHistTs;
+    const anchorRealTs = (lastUpdateTs && lastUpdateTs > 0) ? lastUpdateTs : startTs;
+    const offset = anchorRealTs - anchorHistTs;
 
     // Générer les points sur la fenêtre startTs→endTs
     // En répétant le pattern historique si nécessaire
@@ -1252,7 +1252,11 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     if (!item) return '';
     const hKey = getHistoricalKey(item);
     const hist = HISTORICAL_DATA?.[hKey];
-    const pts = buildHistoricalCurve(item, seg.yataQtyNow, seg.lastUpdate, seg.segStart, seg.segEnd);
+    // Utiliser buildItemChart pour avoir les vraies courbes historiques
+    const segPts = buildItemChart(item, seg.yataQtyNow, seg.lastUpdate || 0, seg.segStart, seg.segEnd, [], segW, H);
+    // buildItemChart retourne du HTML, on doit utiliser les pts directement
+    // → utiliser buildHistoricalCurve à la place
+    const pts = buildHistoricalCurve(item, seg.yataQtyNow, seg.lastUpdate || 0, seg.segStart, seg.segEnd);
     const RESTOCK = item.restockQty;
     const segW = Math.round((seg.segEnd - seg.segStart) / (endTs - startTs) * W);
     if (segW < 10) return '';
