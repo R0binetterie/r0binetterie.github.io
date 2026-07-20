@@ -256,13 +256,63 @@ function buildCountryFilters(){
 
 function getBaseCapacity(){
   const mode=document.getElementById('flightMode').value;
-  return(mode==='standard'?5:15)
-    +(parseInt(document.getElementById('suitcase').value)||0)
-    +(parseInt(document.getElementById('factionBonus').value)||0)
-    +(parseInt(document.getElementById('lingerieBonus').value)||0)
-    +(parseInt(document.getElementById('cruiseBonus').value)||0);
+  const base=(mode==='standard'?10:15);
+  const suitcase=parseInt(document.getElementById('suitcase').value)||0;
+  const faction=parseInt(document.getElementById('factionBonus').value)||0;
+  const job=document.getElementById('jobType').value;
+  const smuggling=parseInt(document.getElementById('smuggling').value)||0;
+  let jobBonus=0;
+  if(job==='lingerie3')jobBonus=2;
+  else if(job==='lingerie10')jobBonus=4;
+  else if(job==='cruise3')jobBonus=2;
+  else if(job==='cruise10')jobBonus=5;
+  // toy7 et flower7 : bonus spécifique géré dans compute()
+  return base+suitcase+faction+jobBonus+smuggling;
 }
-function updateCapacity(){document.getElementById('capacityDisplay').textContent=getBaseCapacity()+' items';}
+function getJobItemBonus(type){
+  const job=document.getElementById('jobType').value;
+  if(job==='toy7'&&type==='plushie')return 5;
+  if(job==='flower7'&&type==='flower')return 5;
+  return 0;
+}
+function updateJobUI(){
+  const job=document.getElementById('jobType').value;
+  // Si lingerie 10* → BC gratuite, forcer le mode BC
+  if(job==='lingerie10'){
+    document.getElementById('flightMode').value='business';
+  }
+}
+function updateCapacity(){
+  const cap=getBaseCapacity();
+  document.getElementById('capacityDisplay').textContent=cap;
+  const mode=document.getElementById('flightMode').value;
+  const base=(mode==='standard'?10:15);
+  const suit=parseInt(document.getElementById('suitcase').value)||0;
+  const fact=parseInt(document.getElementById('factionBonus').value)||0;
+  const job=document.getElementById('jobType').value;
+  const smug=parseInt(document.getElementById('smuggling').value)||0;
+  const parts=[];
+  parts.push(base+'base');
+  if(suit)parts.push('+'+suit+'valise');
+  if(fact)parts.push('+'+fact+'faction');
+  if(job!=='none'&&job!=='toy7'&&job!=='flower7'){
+    const jb=job.includes('10')?'lingerie10'===job?4:5:2;
+    parts.push('+'+jb+'job');
+  }
+  if(smug)parts.push('+'+smug+'livre');
+  document.getElementById('capacityBreakdown').textContent='('+parts.join(' ')+')';
+}
+
+function toggleAcc(id){
+  const block=document.getElementById('acc-'+id);
+  block.classList.toggle('open');
+}
+
+function getFlightTime(country,mode){
+  const base=country.timeMin[mode]||country.timeMin.airstrip;
+  const mailing=parseInt(document.getElementById('mailing').value)||0;
+  return mailing?Math.round(base*0.75):base;
+}
 
 function scheduleRecompute(){
   clearTimeout(recomputeTimer);
@@ -434,14 +484,13 @@ function compute(){try{
   const wantPlush=document.getElementById('f_plushie').checked;
   const wantFlower=document.getElementById('f_flower').checked;
   const wantDrug=document.getElementById('f_drug').checked;
-  const toyBonus=parseInt(document.getElementById('jobToy').value)||0;
-  const flowerBonus=parseInt(document.getElementById('jobFlower').value)||0;
+  // job bonuses handled via getJobItemBonus()
   const baseCapacity=getBaseCapacity();
   const now=Date.now()/1000,departTs=getDepartTs(),runs=[];
 
   COUNTRIES.forEach(country=>{
     if(excludedCountries.has(country.code))return;
-    const tOneWay=country.timeMin[mode]||country.timeMin.airstrip;
+    const tOneWay=getFlightTime(country,mode);
     if(tOneWay<minFlight)return;
     const tripMin=tOneWay*2+5;
     let maxTrips=canFinishAbroad
@@ -476,12 +525,15 @@ function compute(){try{
     }).sort((a,b)=>b.unitProfit-a.unitProfit);
 
     const breakdown=[];
-    let baseRem=baseCapacity,toyRem=toyBonus,flowerRem=flowerBonus;
+    let baseRem=baseCapacity;
+    // Bonus job spécifiques par type
+    let toyJobRem=getJobItemBonus('plushie');
+    let flowerJobRem=getJobItemBonus('flower');
     sorted.forEach(item=>{
       let qty=0;
       if(baseRem>0){qty=baseRem;baseRem=0;}
-      if(item.type==='plushie'&&toyRem>0){qty+=toyRem;toyRem=0;}
-      if(item.type==='flower'&&flowerRem>0){qty+=flowerRem;flowerRem=0;}
+      if(item.type==='plushie'&&toyJobRem>0){qty+=toyJobRem;toyJobRem=0;}
+      if(item.type==='flower'&&flowerJobRem>0){qty+=flowerJobRem;flowerJobRem=0;}
       if(qty<=0)return;
       breakdown.push({
         ...item,qty,
@@ -515,7 +567,7 @@ function compute(){try{
       rawProfitTrip,adjProfitTrip,netPerTrip:adjProfitTrip-travelCost*2,
       totalProfit,profitPerHour,cashRequired,
       breakdown,lastUpdate,ageH,travelCost,trips,departTs,canFinishAbroad,
-      totalCapacity:baseCapacity+toyBonus+flowerBonus,
+      totalCapacity:baseCapacity+getJobItemBonus('plushie'),  // approx pour affichage
     });
   });
 
