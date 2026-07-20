@@ -612,7 +612,18 @@ function getBestItemsForCountry(country, arriveTs, capacity, yataMap, lastUpdate
     const sell = priceData[item.tornId] || priceData[item.name] || item.sell;
     const yQty = yataMap[item.tornId] ?? yataMap[item.id];
     const est = computeEsperance(item, yQty, lastUpdate, arriveTs, capacity);
-    return { ...item, effectiveSell: sell, unitProfit: sell - item.buy, ...est, yataQtyNow: yQty };
+    // Préserver TOUS les champs de l'item (vidageMin, restockMin, etc.)
+    return { 
+      ...item,  // vidageMin, restockMin, restockQty, etc.
+      effectiveSell: sell, 
+      unitProfit: sell - item.buy, 
+      yataQtyNow: yQty,
+      stockEst: est.prediction,
+      stockProba: est.esperance,
+      stockLabel: est.label,
+      stockPred: est.prediction,
+      esperance: est.esperance,
+    };
   }).sort((a, b) => b.unitProfit * b.esperance - a.unitProfit * a.esperance);
 
   // Allouer la capacité
@@ -628,8 +639,10 @@ function getBestItemsForCountry(country, arriveTs, capacity, yataMap, lastUpdate
     if (qty <= 0) return;
     const grossProfit = item.unitProfit * qty;
     const adjProfit = grossProfit * item.esperance;
-    breakdown.push({ ...item, qty, grossProfit, adjustedProfit: adjProfit,
-      stockProba: item.esperance, stockLabel: item.label, stockPred: item.prediction });
+    breakdown.push({ 
+      ...item,  // préserve vidageMin, restockMin, restockQty
+      qty, grossProfit, adjustedProfit: adjProfit,
+    });
   });
 
   const totalEsp = breakdown.reduce((s, b) => s + b.adjustedProfit, 0);
@@ -717,7 +730,9 @@ function compute(){try{
         bestTripEsp = netEsp;
         bestTripOption = {
           country, tOneWay, lastUpdate, yataMap, travelCost,
-          departTs, waitMin: bestDelay,
+          departTs,
+          startTs: departTs,  // alias pour rétrocompatibilité
+          waitMin: bestDelay,
           arriveTs,
           returnTs: arriveTs + 5 * 60,
           landTs: arriveTs + 5 * 60 + tOneWay * 60,
@@ -887,10 +902,10 @@ function renderTimeline(run,rank){
   const DISPLAY_TRIPS = Math.min(4, run.maxTrips);
 
   const nodes = [];
-  nodes.push({type:'depart', ts:run.departTs, label:t('depart_label')});
+  nodes.push({type:'depart', ts:run.departTs || getDepartTs(), label:t('depart_label')});
   run.trips.slice(0, DISPLAY_TRIPS).forEach((trip,i)=>{
     // Attente à Torn (waitMin > 0) → nœud rose
-    if(trip.waitMin > 0){
+    if(trip.waitMin > 0 && trip.departTs){
       nodes.push({type:'wait', ts:trip.departTs - trip.waitMin*60, waitMin:trip.waitMin});
     }
     const country = trip.country || run.country;
@@ -1216,12 +1231,13 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     } else {
       // Nouveau pays
       if (curCountry) segments[segments.length-1].segEnd = trip.departTs || trip.arriveTs - (trip.tOneWay||0)*60;
+      const segStartTs = trip.startTs || trip.departTs || (trip.arriveTs - (trip.tOneWay||run.tOneWay||30)*60);
       segments.push({
         country, mainItem, breakdown,
-        segStart: trip.departTs || trip.arriveTs - (trip.tOneWay||0)*60,
+        segStart: segStartTs,
         segEnd,
         arrivals: [{ts:trip.arriveTs, tripNum:i+1}],
-        departures: trip.departTs ? [{ts:trip.departTs}] : [],
+        departures: (trip.departTs && trip.departTs !== segStartTs) ? [{ts:trip.departTs}] : [],
         yataQtyNow: mainItem?.yataQtyNow,
         lastUpdate: trip.lastUpdate || run.lastUpdate,
         yataMap: trip.yataMap || {},
@@ -1241,7 +1257,10 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     const segW = Math.round((seg.segEnd - seg.segStart) / (endTs - startTs) * W);
     if (segW < 10) return '';
 
-    function tsX(ts){ return ((ts - seg.segStart) / (seg.segEnd - seg.segStart) * segW).toFixed(1); }
+    function tsX(ts){ 
+      const v = (seg.segEnd - seg.segStart) > 0 ? ((ts - seg.segStart) / (seg.segEnd - seg.segStart) * segW) : 0;
+      return isNaN(v) ? 0 : v.toFixed(1); 
+    }
     function qY(q){ return (H - (q / RESTOCK) * H).toFixed(1); }
 
     // Chemin
@@ -1310,7 +1329,7 @@ function buildDetailHTML(run){
 
   // Prédiction du premier trip
   const mainItem=run.breakdown[0];
-  const firstTrip=run.trips[0];
+  const firstTrip=run.trips?.[0] || {arriveTs: run.departTs + (run.tOneWay||0)*60};
   const pred=mainItem?.stockPred;
   let predHTML='';
   if(pred){
