@@ -742,89 +742,95 @@ function getHistoricalKey(item){
   return item.country+'_'+nameKey;
 }
 
-/* ── Graphe SVG pour un item — Corrigé[cite: 1] ── */
+/* ── Graphe SVG pour un item ── */
 function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
-  const hKey = getHistoricalKey(item);[cite: 1]
-  const hist = HISTORICAL_DATA?.[hKey];[cite: 1]
+  const hKey = getHistoricalKey(item);
+  const hist = HISTORICAL_DATA?.[hKey];
   let pts;
 
-  if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){[cite: 1]
-    const rawPts = hist.pts.map(p => [p[0], p[1]]);[cite: 1]
-    const windowDur = endTs - startTs;[cite: 1]
-    const histDur = rawPts[rawPts.length-1][0] - rawPts[0][0];[cite: 1]
+  if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){
+    const rawPts = hist.pts.map(p => [p[0], p[1]]);
+    const windowDur = endTs - startTs;
+    const histDur = rawPts[rawPts.length-1][0] - rawPts[0][0];
 
-    const nowTs = Date.now()/1000;[cite: 1]
+    const nowTs = Date.now()/1000;
 
-    let bestIdx = 0;[cite: 1]
-    let bestDiff = Infinity;[cite: 1]
-    rawPts.forEach((p, i) => {[cite: 1]
-      const diff = Math.abs(p[1] - yataQty);[cite: 1]
-      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }[cite: 1]
-    });[cite: 1]
+    let bestIdx = 0;
+    let bestDiff = Infinity;
+    rawPts.forEach((p, i) => {
+      const diff = Math.abs(p[1] - yataQty);
+      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+    });
 
-    const anchorHistTs = rawPts[bestIdx][0];[cite: 1]
-    const offset = lastUpdateTs - anchorHistTs;[cite: 1]
+    const anchorHistTs = rawPts[bestIdx][0];
+    const offset = lastUpdateTs - anchorHistTs;
 
-    pts = [];[cite: 1]
-    let cycleOffset = 0;[cite: 1]
-    while(true){[cite: 1]
-      rawPts.forEach(p => {[cite: 1]
-        const ts = p[0] + offset + cycleOffset;[cite: 1]
-        if(ts >= startTs - 60 && ts <= endTs + 60){[cite: 1]
-          pts.push({ts, qty: p[1]});[cite: 1]
-        }[cite: 1]
-      });[cite: 1]
-      cycleOffset += histDur;[cite: 1]
-      if(rawPts[0][0] + offset + cycleOffset > endTs) break;[cite: 1]
-      if(cycleOffset > windowDur * 3) break;[cite: 1]
-    }[cite: 1]
-    pts.sort((a,b) => a.ts - b.ts);[cite: 1]
+    pts = [];
+    let cycleOffset = 0;
+    while(true){
+      rawPts.forEach(p => {
+        const ts = p[0] + offset + cycleOffset;
+        if(ts >= startTs - 60 && ts <= endTs + 60){
+          pts.push({ts, qty: p[1]});
+        }
+      });
+      cycleOffset += histDur;
+      if(rawPts[0][0] + offset + cycleOffset > endTs) break;
+      if(cycleOffset > windowDur * 3) break;
+    }
+    pts.sort((a,b) => a.ts - b.ts);
 
-    if(pts.length < 3) pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);[cite: 1]
-  } else {[cite: 1]
-    pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);[cite: 1]
-  }[cite: 1]
-  const RESTOCK=item.restockQty;[cite: 1]
-  function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}[cite: 1]
-  function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}[cite: 1]
+    if(pts.length < 3) pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  } else {
+    pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  }
+  
+  const RESTOCK = item.restockQty;
+  
+  function tsX(ts){
+    return ((ts - startTs) / (endTs - startTs) * W).toFixed(1);
+  }
+  function qY(q){
+    return (H - (q / RESTOCK) * H).toFixed(1);
+  }
 
-  let d='';[cite: 1]
-  for(let i=0;i<pts.length;i++){[cite: 1]
-    const p=pts[i];[cite: 1]
-    if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}[cite: 1]
-    const prev=pts[i-1];[cite: 1]
-    if(p.qty>prev.qty*2&&prev.qty<100){[cite: 1]
-      d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;[cite: 1]
-    }else{[cite: 1]
-      d+=` L${tsX(p.ts)},${qY(p.qty)}`;[cite: 1]
-    }[cite: 1]
-  }[cite: 1]
+  let d='';
+  for(let i=0;i<pts.length;i++){
+    const p=pts[i];
+    if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}
+    const prev=pts[i-1];
+    if(p.qty>prev.qty*2&&prev.qty<100){
+      d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;
+    }else{
+      d+=` L${tsX(p.ts)},${qY(p.qty)}`;
+    }
+  }
 
-  let ticks='';[cite: 1]
-  let tk=Math.ceil(startTs/(15*60))*15*60;[cite: 1]
-  while(tk<=endTs){[cite: 1]
-    const x=tsX(tk);[cite: 1]
-    ticks+=`<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;[cite: 1]
-    tk+=15*60;[cite: 1]
-  }[cite: 1]
+  let ticks='';
+  let tk=Math.ceil(startTs/(15*60))*15*60;
+  while(tk<=endTs){
+    const x=tsX(tk);
+    ticks+=`<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;
+    tk+=15*60;
+  }
 
-  let evs='';[cite: 1]
-  trips.forEach(trip=>{[cite: 1]
-    if(trip.startTs>=startTs&&trip.startTs<=endTs)[cite: 1]
-      evs+=`<line x1="${tsX(trip.startTs)}" y1="0" x2="${tsX(trip.startTs)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;[cite: 1]
-    if(trip.arriveTs>=startTs&&trip.arriveTs<=endTs)[cite: 1]
-      evs+=`<line x1="${tsX(trip.arriveTs)}" y1="0" x2="${tsX(trip.arriveTs)}" y2="${H}" stroke="#ef4444" stroke-width="2"/>`;[cite: 1]
-  });[cite: 1]
+  let evs='';
+  trips.forEach(trip=>{
+    if(trip.startTs>=startTs&&trip.startTs<=endTs)
+      evs+=`<line x1="${tsX(trip.startTs)}" y1="0" x2="${tsX(trip.startTs)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;
+    if(trip.arriveTs>=startTs&&trip.arriveTs<=endTs)
+      evs+=`<line x1="${tsX(trip.arriveTs)}" y1="0" x2="${tsX(trip.arriveTs)}" y2="${H}" stroke="#ef4444" stroke-width="2"/>`;
+  });
 
-  let lbls='';[cite: 1]
-  let lt=Math.ceil(startTs/(30*60))*30*60;[cite: 1]
-  while(lt<=endTs){[cite: 1]
-    lbls+=`<text x="${tsX(lt)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;[cite: 1]
-    lt+=30*60;[cite: 1]
-  }[cite: 1]
+  let lbls='';
+  let lt=Math.ceil(startTs/(30*60))*30*60;
+  while(lt<=endTs){
+    lbls+=`<text x="${tsX(lt)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;
+    lt+=30*60;
+  }
 
-  const model=item.modelKey?STOCK_MODELS[item.modelKey]:null;[cite: 1]
-  const modelInfo=model?`${model.cycles} ${t('cyclesMesures')} · vidage ~${model.vidageMin}min · restock ~${model.restockMin}min`:'';[cite: 1]
+  const model=item.modelKey?STOCK_MODELS[item.modelKey]:null;
+  const modelInfo=model?`${model.cycles} ${t('cyclesMesures')} · vidage ~${model.vidageMin}min · restock ~${model.restockMin}min`:'';
 
   return`<div style="margin-bottom:1rem">
     <div style="font-size:11px;font-weight:600;color:${TYPE_COLORS[item.type]||'#888'};margin-bottom:4px">
@@ -841,7 +847,7 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
         ${lbls}
       </svg>
     </div>
-  </div>`;[cite: 1]
+  </div>`;
 }
 
 /* ── Contenu modal ───────────────────────────────────────────── */
