@@ -1,7 +1,7 @@
 
 # ✈️ Torn Travel Optimizer
 
-Outil de planification de voyages pour [Torn City](https://www.torn.com), hébergeable gratuitement sur **GitHub Pages**.
+Outil de planification de voyages pour [Torn City](https://www.torn.com).
 
 Calcule les meilleurs runs à l'étranger en fonction de :
 - Ta durée de session disponible
