@@ -717,19 +717,22 @@ function renderTimeline(run,rank){
       ${nodesHTML}
     </div>`;
 
-  // Footer "+ X trips identiques" — dans le conteneur timeline
-  const moreHTML = run.maxTrips > DISPLAY_TRIPS ? (() => {
-    const dots = Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill(0)
-      .map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block;flex-shrink:0"></span>').join('');
-    return `<div style="margin-top:1rem;padding:.5rem 0;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:8px">
-      <span style="display:flex;gap:3px;align-items:center">${dots}</span>
-      <span>+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>
+  // Badge "+ X trips" affiché DANS la track, collé à droite
+  const moreTripsHTML = run.maxTrips > DISPLAY_TRIPS ? (() => {
+    const n = run.maxTrips - DISPLAY_TRIPS;
+    const dots = Array(Math.min(n,5)).fill(0)
+      .map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('');
+    return `<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);background:var(--bg2);padding:2px 8px;border-radius:20px;white-space:nowrap">
+      <span style="display:flex;gap:2px">${dots}</span>+${n} trips
     </div>`;
   })() : '';
 
-  // Injecter le footer dans timelineInner après la track
-  const inner = document.getElementById('timelineInner');
-  inner.innerHTML += moreHTML;
+  document.getElementById('timelineInner').innerHTML =
+    `<div style="position:relative;width:100%;height:10px">
+      <div style="position:absolute;top:50%;left:0;right:0;height:2px;background:var(--border2);transform:translateY(-50%)"></div>
+      ${nodesHTML}
+      ${moreTripsHTML}
+    </div>`;
 }
 
 /* ── Cartes compactes ────────────────────────────────────────── */
@@ -775,6 +778,66 @@ function closeModal(e){
     document.getElementById('timelineModal').style.display='none';
 }
 
+/* ── Courbe historique ancrée sur stock YATA ────────────────────
+   Logique :
+   1. Prendre les points bruts du JSON (vraies irrégularités)
+   2. Trouver dans l'historique le moment où le stock ≈ yataQty
+   3. Décaler les timestamps pour commencer à startTs
+   4. Si la session dépasse la durée de l'historique → répéter le pattern
+──────────────────────────────────────────────────────────────── */
+function buildHistoricalCurve(item, hKey, hist, yataQty, lastUpdateTs, startTs, endTs) {
+  const windowDuration = endTs - startTs;
+
+  // Pas de données historiques → fallback simulation
+  if (!hist || !hist.pts || hist.pts.length < 5) {
+    return generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  }
+
+  const rawPts = hist.pts; // [[ts, qty], ...]
+  const histFirstTs = rawPts[0][0];
+  const histLastTs  = rawPts[rawPts.length-1][0];
+  const histDuration = histLastTs - histFirstTs;
+
+  // Trouver le point d'ancrage : moment dans l'historique où qty ≈ yataQty
+  // Si pas de données YATA fraîches → partir du début du cycle historique
+  let anchorIdx = 0;
+  if (yataQty !== null && yataQty !== undefined && lastUpdateTs) {
+    const nowTs = Date.now() / 1000;
+    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
+
+    // Chercher dans l'historique le point qui correspond le mieux au stock actuel
+    // On cherche le point avec qty le plus proche de yataQty dans une phase descendante
+    let bestDiff = Infinity;
+    for (let i = 0; i < rawPts.length; i++) {
+      const diff = Math.abs(rawPts[i][1] - yataQty);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        anchorIdx = i;
+      }
+    }
+  }
+
+  // Décaler les timestamps : anchorIdx correspond à startTs
+  const tsOffset = startTs - rawPts[anchorIdx][0];
+  let basePts = rawPts.map(p => ({ ts: p[0] + tsOffset, qty: p[1] }));
+
+  // Ajouter des cycles si la session dépasse la durée de l'historique
+  const needed = endTs - (basePts[basePts.length-1].ts);
+  if (needed > 0) {
+    let cycles = 1;
+    while (cycles * histDuration < needed + histDuration) {
+      const cycleOffset = tsOffset + cycles * histDuration;
+      rawPts.forEach(p => {
+        basePts.push({ ts: p[0] + cycleOffset, qty: p[1] });
+      });
+      cycles++;
+    }
+  }
+
+  // Filtrer pour ne garder que la fenêtre startTs → endTs
+  return basePts.filter(p => p.ts >= startTs - 60 && p.ts <= endTs + 60);
+}
+
 /* ── Graphe SVG pour un item — utilise données historiques réelles ── */
 function getHistoricalKey(item){
   const nameKey=item.name.toLowerCase().replace(/ /g,'_').replace(/-/g,'_').replace(/'/g,'');
@@ -786,10 +849,56 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
   const hKey=getHistoricalKey(item);
   const hist=HISTORICAL_DATA?.[hKey];
 
-  // Toujours utiliser generateStockCurve ancrée sur le stock YATA actuel
-  // Les données historiques (HISTORICAL_DATA) servent à calibrer vidageMin/restockMin dans STOCK_MODELS
-  // mais la simulation repart du stock YATA actuel (yataQty au moment de lastUpdateTs)
-  const pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  // Utiliser les vraies courbes JSON si disponibles, ancrées sur le stock YATA actuel
+  const hKey = getHistoricalKey(item);
+  const hist = HISTORICAL_DATA?.[hKey];
+  let pts;
+
+  if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){
+    const rawPts = hist.pts.map(p => [p[0], p[1]]);
+    const histMax = hist.max || item.restockQty;
+    const windowDur = endTs - startTs;
+    const histDur = rawPts[rawPts.length-1][0] - rawPts[0][0];
+
+    // Trouver dans les données historiques un point avec quantité proche de yataQty
+    // pour ancrer le décalage temporel
+    const nowTs = Date.now()/1000;
+    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
+
+    // Chercher le point historique le plus proche de yataQty
+    let bestIdx = 0;
+    let bestDiff = Infinity;
+    rawPts.forEach((p, i) => {
+      const diff = Math.abs(p[1] - yataQty);
+      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+    });
+
+    // Décaler les données historiques pour que rawPts[bestIdx] corresponde à lastUpdateTs
+    const anchorHistTs = rawPts[bestIdx][0];
+    const offset = lastUpdateTs - anchorHistTs;
+
+    // Générer les points sur la fenêtre startTs→endTs
+    // En répétant le pattern historique si nécessaire
+    pts = [];
+    let cycleOffset = 0;
+    while(true){
+      rawPts.forEach(p => {
+        const ts = p[0] + offset + cycleOffset;
+        if(ts >= startTs - 60 && ts <= endTs + 60){
+          pts.push({ts, qty: p[1]});
+        }
+      });
+      cycleOffset += histDur;
+      if(rawPts[0][0] + offset + cycleOffset > endTs) break;
+      if(cycleOffset > windowDur * 3) break; // sécurité
+    }
+    pts.sort((a,b) => a.ts - b.ts);
+
+    // Si pas assez de points dans la fenêtre, fallback simulation
+    if(pts.length < 3) pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  } else {
+    pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  }
   const RESTOCK=item.restockQty;
   function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}
   function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}
