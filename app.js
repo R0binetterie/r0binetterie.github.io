@@ -107,7 +107,7 @@ const T={
     prediction:'Stock prediction',stockActuel:'Current stock',
     prochainTick:'Next TCT tick',stockZero:'Stock hits 0 at',
     restockAttendu:'Restock expected between',arrivee:'Arrival',probaArr:'Probability at arrival',
-    enStock:'in stock',stockFaible:'low stock',stockTresFaible:'very low stock',
+    enStock:'en stock',stockFaible:'low stock',stockTresFaible:'very low stock',
     restockProb:'restock likely at arrival',restockLointain:'empty, restock far away',
     inconnu:'unknown',simulBasee:'Simulation based on real data (yata_tracker.py)',
     detailRun:'Run detail',depart_label:'Departure',arrivee_label:'Arrival',
@@ -131,7 +131,6 @@ function t(k){return T[currentLang]?.[k]||T.fr[k]||k;}
 function setLang(lang){
   currentLang=lang;
   localStorage.setItem('lang',lang);
-  // Mettre à jour tous les éléments avec data-i18n
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const k=el.getAttribute('data-i18n');
     el.textContent=t(k);
@@ -142,7 +141,6 @@ function setLang(lang){
   document.querySelectorAll('[data-i18n-title]').forEach(el=>{
     el.title=t(el.getAttribute('data-i18n-title'));
   });
-  // Options des selects
   document.querySelectorAll('select[data-i18n-select]').forEach(sel=>{
     const type=sel.getAttribute('data-i18n-select');
     if(type==='flightMode'){
@@ -266,7 +264,6 @@ function getBaseCapacity(){
   else if(job==='lingerie10')jobBonus=4;
   else if(job==='cruise3')jobBonus=2;
   else if(job==='cruise10')jobBonus=5;
-  // toy7 et flower7 : bonus spécifique géré dans compute()
   return base+suitcase+faction+jobBonus+smuggling;
 }
 function getJobItemBonus(type){
@@ -277,15 +274,14 @@ function getJobItemBonus(type){
 }
 function updateJobUI(){
   const job=document.getElementById('jobType').value;
-  // Si lingerie 10* → BC gratuite, forcer le mode BC
   if(job==='lingerie10'){
     document.getElementById('flightMode').value='business';
   }
 }
 function updateCapacity(){
-  const cap=getBaseCapacity();
-  document.getElementById('capacityDisplay').textContent=cap;
-  const d2=document.getElementById('capacityDisplay2');if(d2)d2.textContent=cap;
+  const _cap=getBaseCapacity();
+  document.getElementById('capacityDisplay').textContent=_cap;
+  const d2=document.getElementById('capacityDisplay2');if(d2)d2.textContent=_cap;
   const mode=document.getElementById('flightMode').value;
   const base=(mode==='standard'?10:15);
   const suit=parseInt(document.getElementById('suitcase').value)||0;
@@ -306,10 +302,8 @@ function updateCapacity(){
 
 function openDropdown(id){
   const allDDs=['profil','session','filtres','api'];
-  // Fermer si déjà ouvert (toggle)
   const dd=document.getElementById('dd-'+id);
   const wasOpen=dd.classList.contains('open');
-  // Fermer tous
   allDDs.forEach(n=>{
     document.getElementById('dd-'+n).classList.remove('open');
     document.getElementById('tab-'+n)?.classList.remove('active');
@@ -319,7 +313,6 @@ function openDropdown(id){
     dd.classList.add('open');
     document.getElementById('tab-'+id)?.classList.add('active');
     document.getElementById('dropdownOverlay').classList.add('active');
-    // Positionner la flèche sous le tab cliqué
     const tab=document.getElementById('tab-'+id);
     if(tab){
       const rect=tab.getBoundingClientRect();
@@ -388,20 +381,6 @@ async function fetchAndCompute(){
   btn.classList.remove('loading');
 }
 
-/* ── Modèle de stock basé sur position dans le cycle TCT ─────────
-   Pour les vols longs (>1h), le snapshot YATA est peu utile car
-   plusieurs cycles s'écoulent avant l'arrivée.
-   
-   Approche : à l'heure d'arrivée, on calcule combien de minutes
-   après le dernier tick TCT on se trouve, et on utilise la
-   distribution empirique TICK_RESTOCK_DIST pour calculer
-   P(restock déjà fait à ce moment).
-   
-   Résumé données (106 cycles vidage + 100 mesures tick→restock) :
-   Vidage moyen peluches : 40.7 min | Cycle total : ~55.5 min
-   Tick→Restock : P10=3.5 P50=9.4 P90=14.7 min
-──────────────────────────────────────────────────────────────── */
-
 function nextTick(ts){return Math.ceil(ts/(15*60))*(15*60);}
 function prevTick(ts){return Math.floor(ts/(15*60))*(15*60);}
 
@@ -415,7 +394,6 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   const nowTs=Date.now()/1000;
   const{restockQty,vidageMin,restockMin}=item;
 
-  // Position dans le cycle TCT à l'arrivée
   const tickBefore=prevTick(targetTs);
   const tickNext=tickBefore+15*60;
   const minAfterTick=(targetTs-tickBefore)/60;
@@ -425,9 +403,7 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   let proba,label;
 
   if(item.type==='plushie'||item.type==='flower'){
-    // P(en phase de vidage = stock dispo) = vidageMin / cycleDuration
     const probaInStockPhase=Math.min(0.95,vidageMin/cycleDuration);
-    // P(en phase vide mais restock déjà fait)
     const probaVide=1-probaInStockPhase;
     const probaRestockFait=probaRestockDone(minAfterTick);
     proba=probaInStockPhase+probaVide*probaRestockFait;
@@ -438,7 +414,6 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
     else if(proba>=0.35) label=t('restockProb');
     else label=t('restockLointain');
 
-    // Si données YATA fraîches (<30 min) et vol court (<60 min) : affiner
     if(lastUpdateTs&&yataQty!==undefined&&(nowTs-lastUpdateTs)<1800&&(targetTs-nowTs)<3600){
       const decay=restockQty/(vidageMin*60);
       const stockNow=Math.max(0,yataQty-decay*(nowTs-lastUpdateTs));
@@ -466,13 +441,11 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   return{qty:null,proba,label,prediction};
 }
 
-/* ── Génère la courbe de stock simulée pour un item/période ─── */
 function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
   const{restockQty,vidageMin,restockMin}=item;
   const decay=restockQty/(vidageMin*60);
   const nowTs=Date.now()/1000;
 
-  // Simuler depuis lastUpdate jusqu'au début de la fenêtre
   let stock=yataQty??restockQty;
   let emptyAt=null;
   const preElapsed=Math.max(0,startTs-lastUpdateTs);
@@ -485,7 +458,6 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
     }
   }
 
-  // Générer les points sur la fenêtre
   const pts=[];
   for(let ts=startTs;ts<=endTs;ts+=60){
     stock=Math.max(0,stock-decay*60);
@@ -493,10 +465,10 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
     if(emptyAt!==null){
       const tick=nextTick(emptyAt);
       if(ts>=tick+(restockMin||15)*60){
-        pts.push({ts,qty:0}); // juste avant le restock
+        pts.push({ts,qty:0});
         stock=restockQty;
         emptyAt=null;
-        pts.push({ts,qty:restockQty}); // restock instantané
+        pts.push({ts,qty:restockQty});
         continue;
       }
     }
@@ -517,7 +489,6 @@ function compute(){try{
   const wantPlush=document.getElementById('f_plushie').checked;
   const wantFlower=document.getElementById('f_flower').checked;
   const wantDrug=document.getElementById('f_drug').checked;
-  // job bonuses handled via getJobItemBonus()
   const baseCapacity=getBaseCapacity();
   const now=Date.now()/1000,departTs=getDepartTs(),runs=[];
 
@@ -559,7 +530,6 @@ function compute(){try{
 
     const breakdown=[];
     let baseRem=baseCapacity;
-    // Bonus job spécifiques par type
     let toyJobRem=getJobItemBonus('plushie');
     let flowerJobRem=getJobItemBonus('flower');
     sorted.forEach(item=>{
@@ -600,7 +570,7 @@ function compute(){try{
       rawProfitTrip,adjProfitTrip,netPerTrip:adjProfitTrip-travelCost*2,
       totalProfit,profitPerHour,cashRequired,
       breakdown,lastUpdate,ageH,travelCost,trips,departTs,canFinishAbroad,
-      totalCapacity:baseCapacity+getJobItemBonus('plushie'),  // approx pour affichage
+      totalCapacity:baseCapacity+getJobItemBonus('plushie'),
     });
   });
 
@@ -620,7 +590,6 @@ function renderResults(runs,mode){
   empty.style.display='none';
   const best=runs[0];
 
-  // Stats globales
   const _gs=(id,k)=>{const el=document.getElementById(id);if(el)el.textContent=t(k);};
   _gs('gs_profit_label','profit');_gs('gs_pph_label','profitH');_gs('gs_cash_label','cashRequis');_gs('gs_trips_label','trips');
   document.getElementById('gs_profit').textContent='$'+fmt(best.totalProfit);
@@ -629,13 +598,11 @@ function renderResults(runs,mode){
   document.getElementById('gs_trips').textContent=best.maxTrips;
   document.getElementById('globalStats').style.display='grid';
 
-  // Meilleur run : timeline + détail intégré
   const _sb=document.getElementById('section_bestrun');if(_sb)_sb.textContent=t('meilleureRun');
   document.getElementById('bestRunSection').style.display='block';
   renderTimeline(best,0);
   document.getElementById('bestRunDetail').innerHTML=buildDetailHTML(best);
 
-  // Autres destinations — cachées par défaut
   if(runs.length>1){
     document.getElementById('otherRuns').style.display='block';
     document.getElementById('otherRunsList').style.display='none';
@@ -673,7 +640,6 @@ function renderTimeline(run,rank){
       nodes.push({type:'return', ts:trip.landTs, label:`${t('retour')} T${i+1}`});
   });
 
-  // Positions en % : étalées de 4% à 96%
   const firstTs = nodes[0].ts;
   const lastTs  = nodes[nodes.length-1].ts;
   const span    = Math.max(lastTs - firstTs, 1);
@@ -711,13 +677,6 @@ function renderTimeline(run,rank){
     </div>`;
   });
 
-  document.getElementById('timelineInner').innerHTML =
-    `<div style="position:relative;width:100%;height:10px">
-      <div style="position:absolute;top:50%;left:0;right:0;height:2px;background:var(--border2);transform:translateY(-50%)"></div>
-      ${nodesHTML}
-    </div>`;
-
-  // Badge "+ X trips" affiché DANS la track, collé à droite
   const moreTripsHTML = run.maxTrips > DISPLAY_TRIPS ? (() => {
     const n = run.maxTrips - DISPLAY_TRIPS;
     const dots = Array(Math.min(n,5)).fill(0)
@@ -778,174 +737,94 @@ function closeModal(e){
     document.getElementById('timelineModal').style.display='none';
 }
 
-/* ── Courbe historique ancrée sur stock YATA ────────────────────
-   Logique :
-   1. Prendre les points bruts du JSON (vraies irrégularités)
-   2. Trouver dans l'historique le moment où le stock ≈ yataQty
-   3. Décaler les timestamps pour commencer à startTs
-   4. Si la session dépasse la durée de l'historique → répéter le pattern
-──────────────────────────────────────────────────────────────── */
-function buildHistoricalCurve(item, hKey, hist, yataQty, lastUpdateTs, startTs, endTs) {
-  const windowDuration = endTs - startTs;
-
-  // Pas de données historiques → fallback simulation
-  if (!hist || !hist.pts || hist.pts.length < 5) {
-    return generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
-  }
-
-  const rawPts = hist.pts; // [[ts, qty], ...]
-  const histFirstTs = rawPts[0][0];
-  const histLastTs  = rawPts[rawPts.length-1][0];
-  const histDuration = histLastTs - histFirstTs;
-
-  // Trouver le point d'ancrage : moment dans l'historique où qty ≈ yataQty
-  // Si pas de données YATA fraîches → partir du début du cycle historique
-  let anchorIdx = 0;
-  if (yataQty !== null && yataQty !== undefined && lastUpdateTs) {
-    const nowTs = Date.now() / 1000;
-    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
-
-    // Chercher dans l'historique le point qui correspond le mieux au stock actuel
-    // On cherche le point avec qty le plus proche de yataQty dans une phase descendante
-    let bestDiff = Infinity;
-    for (let i = 0; i < rawPts.length; i++) {
-      const diff = Math.abs(rawPts[i][1] - yataQty);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        anchorIdx = i;
-      }
-    }
-  }
-
-  // Décaler les timestamps : anchorIdx correspond à startTs
-  const tsOffset = startTs - rawPts[anchorIdx][0];
-  let basePts = rawPts.map(p => ({ ts: p[0] + tsOffset, qty: p[1] }));
-
-  // Ajouter des cycles si la session dépasse la durée de l'historique
-  const needed = endTs - (basePts[basePts.length-1].ts);
-  if (needed > 0) {
-    let cycles = 1;
-    while (cycles * histDuration < needed + histDuration) {
-      const cycleOffset = tsOffset + cycles * histDuration;
-      rawPts.forEach(p => {
-        basePts.push({ ts: p[0] + cycleOffset, qty: p[1] });
-      });
-      cycles++;
-    }
-  }
-
-  // Filtrer pour ne garder que la fenêtre startTs → endTs
-  return basePts.filter(p => p.ts >= startTs - 60 && p.ts <= endTs + 60);
-}
-
-/* ── Graphe SVG pour un item — utilise données historiques réelles ── */
 function getHistoricalKey(item){
   const nameKey=item.name.toLowerCase().replace(/ /g,'_').replace(/-/g,'_').replace(/'/g,'');
   return item.country+'_'+nameKey;
 }
 
+/* ── Graphe SVG pour un item — Corrigé[cite: 1] ── */
 function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
-  // Essayer d'abord les données historiques réelles
-  const hKey=getHistoricalKey(item);
-  const hist=HISTORICAL_DATA?.[hKey];
-
-  // Utiliser les vraies courbes JSON si disponibles, ancrées sur le stock YATA actuel
-  const hKey = getHistoricalKey(item);
-  const hist = HISTORICAL_DATA?.[hKey];
+  const hKey = getHistoricalKey(item);[cite: 1]
+  const hist = HISTORICAL_DATA?.[hKey];[cite: 1]
   let pts;
 
-  if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){
-    const rawPts = hist.pts.map(p => [p[0], p[1]]);
-    const histMax = hist.max || item.restockQty;
-    const windowDur = endTs - startTs;
-    const histDur = rawPts[rawPts.length-1][0] - rawPts[0][0];
+  if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){[cite: 1]
+    const rawPts = hist.pts.map(p => [p[0], p[1]]);[cite: 1]
+    const windowDur = endTs - startTs;[cite: 1]
+    const histDur = rawPts[rawPts.length-1][0] - rawPts[0][0];[cite: 1]
 
-    // Trouver dans les données historiques un point avec quantité proche de yataQty
-    // pour ancrer le décalage temporel
-    const nowTs = Date.now()/1000;
-    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
+    const nowTs = Date.now()/1000;[cite: 1]
 
-    // Chercher le point historique le plus proche de yataQty
-    let bestIdx = 0;
-    let bestDiff = Infinity;
-    rawPts.forEach((p, i) => {
-      const diff = Math.abs(p[1] - yataQty);
-      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
-    });
+    let bestIdx = 0;[cite: 1]
+    let bestDiff = Infinity;[cite: 1]
+    rawPts.forEach((p, i) => {[cite: 1]
+      const diff = Math.abs(p[1] - yataQty);[cite: 1]
+      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }[cite: 1]
+    });[cite: 1]
 
-    // Décaler les données historiques pour que rawPts[bestIdx] corresponde à lastUpdateTs
-    const anchorHistTs = rawPts[bestIdx][0];
-    const offset = lastUpdateTs - anchorHistTs;
+    const anchorHistTs = rawPts[bestIdx][0];[cite: 1]
+    const offset = lastUpdateTs - anchorHistTs;[cite: 1]
 
-    // Générer les points sur la fenêtre startTs→endTs
-    // En répétant le pattern historique si nécessaire
-    pts = [];
-    let cycleOffset = 0;
-    while(true){
-      rawPts.forEach(p => {
-        const ts = p[0] + offset + cycleOffset;
-        if(ts >= startTs - 60 && ts <= endTs + 60){
-          pts.push({ts, qty: p[1]});
-        }
-      });
-      cycleOffset += histDur;
-      if(rawPts[0][0] + offset + cycleOffset > endTs) break;
-      if(cycleOffset > windowDur * 3) break; // sécurité
-    }
-    pts.sort((a,b) => a.ts - b.ts);
+    pts = [];[cite: 1]
+    let cycleOffset = 0;[cite: 1]
+    while(true){[cite: 1]
+      rawPts.forEach(p => {[cite: 1]
+        const ts = p[0] + offset + cycleOffset;[cite: 1]
+        if(ts >= startTs - 60 && ts <= endTs + 60){[cite: 1]
+          pts.push({ts, qty: p[1]});[cite: 1]
+        }[cite: 1]
+      });[cite: 1]
+      cycleOffset += histDur;[cite: 1]
+      if(rawPts[0][0] + offset + cycleOffset > endTs) break;[cite: 1]
+      if(cycleOffset > windowDur * 3) break;[cite: 1]
+    }[cite: 1]
+    pts.sort((a,b) => a.ts - b.ts);[cite: 1]
 
-    // Si pas assez de points dans la fenêtre, fallback simulation
-    if(pts.length < 3) pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
-  } else {
-    pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
-  }
-  const RESTOCK=item.restockQty;
-  function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}
-  function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}
+    if(pts.length < 3) pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);[cite: 1]
+  } else {[cite: 1]
+    pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);[cite: 1]
+  }[cite: 1]
+  const RESTOCK=item.restockQty;[cite: 1]
+  function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}[cite: 1]
+  function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}[cite: 1]
 
-  // Chemin avec restock vertical
-  let d='';
-  for(let i=0;i<pts.length;i++){
-    const p=pts[i];
-    if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}
-    const prev=pts[i-1];
-    if(p.qty>prev.qty*2&&prev.qty<100){
-      // Restock instantané : descendre à 0 puis monter verticalement
-      d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;
-    }else{
-      d+=` L${tsX(p.ts)},${qY(p.qty)}`;
-    }
-  }
+  let d='';[cite: 1]
+  for(let i=0;i<pts.length;i++){[cite: 1]
+    const p=pts[i];[cite: 1]
+    if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}[cite: 1]
+    const prev=pts[i-1];[cite: 1]
+    if(p.qty>prev.qty*2&&prev.qty<100){[cite: 1]
+      d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;[cite: 1]
+    }else{[cite: 1]
+      d+=` L${tsX(p.ts)},${qY(p.qty)}`;[cite: 1]
+    }[cite: 1]
+  }[cite: 1]
 
-  // Ticks TCT
-  let ticks='';
-  let tk=Math.ceil(startTs/(15*60))*15*60;
-  while(tk<=endTs){
-    const x=tsX(tk);
-    ticks+=`<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;
-    tk+=15*60;
-  }
+  let ticks='';[cite: 1]
+  let tk=Math.ceil(startTs/(15*60))*15*60;[cite: 1]
+  while(tk<=endTs){[cite: 1]
+    const x=tsX(tk);[cite: 1]
+    ticks+=`<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;[cite: 1]
+    tk+=15*60;[cite: 1]
+  }[cite: 1]
 
-  // Events : départ (bleu) + arrivée (rouge)
-  let evs='';
-  trips.forEach(trip=>{
-    if(trip.startTs>=startTs&&trip.startTs<=endTs)
-      evs+=`<line x1="${tsX(trip.startTs)}" y1="0" x2="${tsX(trip.startTs)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;
-    if(trip.arriveTs>=startTs&&trip.arriveTs<=endTs)
-      evs+=`<line x1="${tsX(trip.arriveTs)}" y1="0" x2="${tsX(trip.arriveTs)}" y2="${H}" stroke="#ef4444" stroke-width="2"/>`;
-  });
+  let evs='';[cite: 1]
+  trips.forEach(trip=>{[cite: 1]
+    if(trip.startTs>=startTs&&trip.startTs<=endTs)[cite: 1]
+      evs+=`<line x1="${tsX(trip.startTs)}" y1="0" x2="${tsX(trip.startTs)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;[cite: 1]
+    if(trip.arriveTs>=startTs&&trip.arriveTs<=endTs)[cite: 1]
+      evs+=`<line x1="${tsX(trip.arriveTs)}" y1="0" x2="${tsX(trip.arriveTs)}" y2="${H}" stroke="#ef4444" stroke-width="2"/>`;[cite: 1]
+  });[cite: 1]
 
-  // Labels horaires
-  let lbls='';
-  let lt=Math.ceil(startTs/(30*60))*30*60;
-  while(lt<=endTs){
-    lbls+=`<text x="${tsX(lt)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;
-    lt+=30*60;
-  }
+  let lbls='';[cite: 1]
+  let lt=Math.ceil(startTs/(30*60))*30*60;[cite: 1]
+  while(lt<=endTs){[cite: 1]
+    lbls+=`<text x="${tsX(lt)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;[cite: 1]
+    lt+=30*60;[cite: 1]
+  }[cite: 1]
 
-  // Modèle info
-  const model=item.modelKey?STOCK_MODELS[item.modelKey]:null;
-  const modelInfo=model?`${model.cycles} ${t('cyclesMesures')} · vidage ~${model.vidageMin}min · restock ~${model.restockMin}min`:'';
+  const model=item.modelKey?STOCK_MODELS[item.modelKey]:null;[cite: 1]
+  const modelInfo=model?`${model.cycles} ${t('cyclesMesures')} · vidage ~${model.vidageMin}min · restock ~${model.restockMin}min`:'';[cite: 1]
 
   return`<div style="margin-bottom:1rem">
     <div style="font-size:11px;font-weight:600;color:${TYPE_COLORS[item.type]||'#888'};margin-bottom:4px">
@@ -962,7 +841,7 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
         ${lbls}
       </svg>
     </div>
-  </div>`;
+  </div>`;[cite: 1]
 }
 
 /* ── Contenu modal ───────────────────────────────────────────── */
@@ -970,32 +849,27 @@ function buildDetailHTML(run){
   const sessionMin=parseInt(document.getElementById('sessionHours').value)*60;
   const startTs=run.departTs;
   const endTs=run.departTs+sessionMin*60;
-  const W=900;  // sera adapté par le viewBox SVG responsive
+  const W=900;
   const H=120;
 
-  // Graphes pour chaque item du breakdown
   const chartsHTML=run.breakdown.map(b=>{
     return buildItemChart(b,b.yataQtyNow,run.lastUpdate,startTs,endTs,run.trips,W,H);
   }).join('');
 
-  // Prédiction du premier trip
   const mainItem=run.breakdown[0];
   const firstTrip=run.trips[0];
   const pred=mainItem?.stockPred;
   let predHTML='';
   if(pred){
-    // Couleur selon probabilité
     const proba = Math.round(mainItem.stockProba*100);
     const probaColor = proba>=75?'var(--green)':proba>=40?'#f5a623':'var(--red)';
     const probaIcon = proba>=75?'✅':proba>=40?'⚠️':'❌';
 
-    // Scénario textuel basé sur le nouveau modèle TCT
     const model = mainItem.modelKey ? STOCK_MODELS[mainItem.modelKey] : null;
     const nCycles = model?.cycles || '?';
     let scenario = '';
 
     if(pred.tickBefore){
-      // Nouveau modèle : position dans le cycle TCT
       scenario = `
         Arrivée à <b style="color:#ef4444">${fmtH(firstTrip.arriveTs)}</b> —
         soit <b>${pred.minAfterTick} min</b> après le tick TCT de <b style="color:#c8f542">${pred.tickBefore}</b>
@@ -1027,7 +901,6 @@ function buildDetailHTML(run){
     </div>`;
   }
 
-  // Items
   const itemRows=run.breakdown.map(b=>{
     const color=TYPE_COLORS[b.type]||'#888';
     const barW=Math.round(b.stockProba*100);
@@ -1048,7 +921,6 @@ function buildDetailHTML(run){
     </div>`;
   }).join('');
 
-  // Profit
   const avgProba=Math.round(run.breakdown.reduce((s,b)=>s+b.stockProba,0)/run.breakdown.length*100);
   const profitExplain=`<div class="profit-explain">
     <div class="pe-row"><span>${t('profitBrut')}</span><span>$${fmt(run.rawProfitTrip)}</span></div>
@@ -1059,7 +931,6 @@ function buildDetailHTML(run){
     <div class="pe-row pe-total"><span>× ${run.maxTrips} trips</span><span class="green">$${fmt(run.totalProfit)}</span></div>
   </div>`;
 
-  // Trips
   const tripRows=run.trips.slice(0,3).map((tr,i)=>`
     <div class="tl-trip-row">
       <span class="tl-trip-num">T${i+1}</span>
