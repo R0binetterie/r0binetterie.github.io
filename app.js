@@ -691,22 +691,15 @@ function renderTimeline(run,rank){
       body = `<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
     } else if(n.type==='arrive'){
       const mi = n.items[0];
+      const probaColor = mi.stockProba>=0.75?'var(--green)':mi.stockProba>=0.4?'#f5a623':'var(--red)';
       dot = `<div class="tl-dot tl-dot-country">
         <img src="https://flagcdn.com/20x15/${n.country.flag}.png" width="20" height="15"
           style="border-radius:2px;display:block" onerror="this.style.display='none'">
       </div>`;
       body = `<div class="tl-nc-time">${fmtH(n.ts)}</div>
         <div class="tl-nc-country">${n.country.name}</div>
-        <div class="tl-nc-item">
-          <img src="https://www.torn.com/images/items/${mi.tornId}/large.png"
-            style="width:32px;height:32px;object-fit:contain;border-radius:5px;background:var(--bg3);flex-shrink:0"
-            onerror="this.style.display='none'">
-          <div>
-            <div style="font-size:11px;color:var(--text2)">×${mi.qty} ${mi.name}</div>
-            <div class="tl-nc-profit">+$${fmt(n.profit)}</div>
-            <div style="font-size:10px;color:var(--text3)">${Math.round(mi.stockProba*100)}% · T${n.trip}</div>
-          </div>
-        </div>`;
+        <div style="font-size:10px;margin-top:2px;color:${probaColor};font-weight:600">+$${fmt(n.profit)}</div>
+        <div style="font-size:9px;color:var(--text3)">${Math.round(mi.stockProba*100)}% stock · T${n.trip}</div>`;
     } else {
       dot  = `<div class="tl-dot tl-dot-end"></div>`;
       body = `<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
@@ -724,18 +717,19 @@ function renderTimeline(run,rank){
       ${nodesHTML}
     </div>`;
 
-  // Footer "+ X trips identiques"
-  const existingBtn = document.getElementById('bestDetailBtn');
-  if(existingBtn) existingBtn.remove();
-  if(run.maxTrips > DISPLAY_TRIPS){
-    const footer = document.createElement('div');
-    footer.id = 'bestDetailBtn';
-    footer.style.cssText = 'padding:.5rem 1.25rem;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)';
+  // Footer "+ X trips identiques" — dans le conteneur timeline
+  const moreHTML = run.maxTrips > DISPLAY_TRIPS ? (() => {
     const dots = Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill(0)
-      .map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('');
-    footer.innerHTML = `<span style="display:flex;gap:3px;align-items:center">${dots}</span><span>+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>`;
-    document.getElementById('bestRunSection')?.appendChild(footer);
-  }
+      .map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block;flex-shrink:0"></span>').join('');
+    return `<div style="margin-top:1rem;padding:.5rem 0;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:8px">
+      <span style="display:flex;gap:3px;align-items:center">${dots}</span>
+      <span>+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>
+    </div>`;
+  })() : '';
+
+  // Injecter le footer dans timelineInner après la track
+  const inner = document.getElementById('timelineInner');
+  inner.innerHTML += moreHTML;
 }
 
 /* ── Cartes compactes ────────────────────────────────────────── */
@@ -792,37 +786,10 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
   const hKey=getHistoricalKey(item);
   const hist=HISTORICAL_DATA?.[hKey];
 
-  let pts;
-  if(hist && hist.pts && hist.pts.length>=3){
-    // Utiliser les vraies données historiques
-    // On prend les points qui correspondent à la fenêtre startTs→endTs
-    // Si pas de données dans la fenêtre, utiliser les dernières données disponibles
-    // et décaler temporellement pour la visualisation
-    const rawPts=hist.pts;
-    const firstTs=rawPts[0][0];
-    const lastTs=rawPts[rawPts.length-1][0];
-    const histDuration=lastTs-firstTs;
-    const windowDuration=endTs-startTs;
-
-    // Décaler les points pour qu'ils s'affichent dans la fenêtre actuelle
-    // en préservant le pattern cyclique
-    const offset=startTs-firstTs;
-    pts=rawPts.map(p=>({ts:p[0]+offset,qty:p[1]}));
-
-    // Si la fenêtre est plus longue que l'historique, répéter le pattern
-    if(windowDuration>histDuration){
-      const extra=[];
-      let cycle=1;
-      while(rawPts[0][0]+offset+cycle*histDuration<endTs){
-        rawPts.forEach(p=>extra.push({ts:p[0]+offset+cycle*histDuration,qty:p[1]}));
-        cycle++;
-      }
-      pts=[...pts,...extra];
-    }
-  } else {
-    // Fallback : simulation
-    pts=generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs);
-  }
+  // Toujours utiliser generateStockCurve ancrée sur le stock YATA actuel
+  // Les données historiques (HISTORICAL_DATA) servent à calibrer vidageMin/restockMin dans STOCK_MODELS
+  // mais la simulation repart du stock YATA actuel (yataQty au moment de lastUpdateTs)
+  const pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
   const RESTOCK=item.restockQty;
   function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}
   function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}
