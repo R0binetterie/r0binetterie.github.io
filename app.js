@@ -614,11 +614,13 @@ function renderResults(runs,mode){
   const empty=document.getElementById('emptyState');
   if(!runs.length){
     empty.style.display='flex';
-    ['globalStats','bestRunTimeline','otherRuns'].forEach(id=>document.getElementById(id).style.display='none');
+    ['globalStats','bestRunSection','otherRuns'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
     return;
   }
   empty.style.display='none';
   const best=runs[0];
+
+  // Stats globales
   const _gs=(id,k)=>{const el=document.getElementById(id);if(el)el.textContent=t(k);};
   _gs('gs_profit_label','profit');_gs('gs_pph_label','profitH');_gs('gs_cash_label','cashRequis');_gs('gs_trips_label','trips');
   document.getElementById('gs_profit').textContent='$'+fmt(best.totalProfit);
@@ -626,23 +628,34 @@ function renderResults(runs,mode){
   document.getElementById('gs_cash').textContent='$'+fmt(best.cashRequired);
   document.getElementById('gs_trips').textContent=best.maxTrips;
   document.getElementById('globalStats').style.display='grid';
-  const _sb=document.getElementById('section_bestrun');if(_sb)_sb.textContent=t('meilleureRun');
-  document.getElementById('bestRunTimeline').style.display='block';
-  renderTimeline(best,0);
 
+  // Meilleur run : timeline + détail intégré
+  const _sb=document.getElementById('section_bestrun');if(_sb)_sb.textContent=t('meilleureRun');
+  document.getElementById('bestRunSection').style.display='block';
+  renderTimeline(best,0);
+  document.getElementById('bestRunDetail').innerHTML=buildDetailHTML(best);
+
+  // Autres destinations — cachées par défaut
   if(runs.length>1){
-    const _sa=document.getElementById('section_autres');if(_sa)_sa.textContent=t('autresOptions');
     document.getElementById('otherRuns').style.display='block';
+    document.getElementById('otherRunsList').style.display='none';
+    const toggle=document.getElementById('otherRunsToggle');
+    if(toggle)toggle.textContent=`▼ ${runs.length-1} autres destinations`;
     const list=document.getElementById('otherRunsList');list.innerHTML='';
-    runs.slice(1,6).forEach((run,i)=>list.appendChild(buildCompactCard(run,i+1)));
-    if(runs.length>6){
-      const more=document.createElement('p');
-      more.style.cssText='text-align:center;color:var(--text3);font-size:12px;padding:.75rem;cursor:pointer;border:1px solid var(--border);border-radius:var(--radius-sm);margin-top:.5rem';
-      more.textContent=`${t('voirAutres')} ${runs.length-6} ${t('autresLabel')}`;
-      more.onclick=()=>{runs.slice(6).forEach((r,i)=>list.insertBefore(buildCompactCard(r,i+6),more));more.remove();};
-      list.appendChild(more);
-    }
-  }else{document.getElementById('otherRuns').style.display='none';}
+    runs.slice(1).forEach((run,i)=>list.appendChild(buildCompactCard(run,i+1)));
+  }else{
+    const el=document.getElementById('otherRuns');if(el)el.style.display='none';
+  }
+}
+
+function toggleOtherRuns(){
+  const list=document.getElementById('otherRunsList');
+  const btn=document.getElementById('otherRunsToggle');
+  const isOpen=list.style.display!=='none';
+  list.style.display=isOpen?'none':'block';
+  btn.textContent=isOpen
+    ?`▼ ${window._runs?.length-1||''} autres destinations`
+    :`▲ Masquer les autres destinations`;
 }
 
 /* ── Timeline scrollable ─────────────────────────────────────── */
@@ -705,17 +718,16 @@ function renderTimeline(run,rank){
       ${nodesHTML}
     </div>`;
 
-  // Footer : "+ X trips similaires" + bouton Détail
+  // Footer : "+ X trips identiques" (pas de bouton Détail, tout est affiché en dessous)
   const existingBtn = document.getElementById('bestDetailBtn');
   if(existingBtn) existingBtn.remove();
-  const detailBtn = document.createElement('div');
-  detailBtn.id = 'bestDetailBtn';
-  detailBtn.style.cssText = 'margin-top:.75rem;display:flex;align-items:center;justify-content:space-between';
-  const moreTrips = run.maxTrips > DISPLAY_TRIPS
-    ? `<span style="font-size:12px;color:var(--text3)">+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>`
-    : '<span></span>';
-  detailBtn.innerHTML = `${moreTrips}<button class="btn-detail" onclick="showRunDetail(${rank})" style="padding:6px 16px;font-size:12px">${t('detail')} →</button>`;
-  document.getElementById('bestRunTimeline').appendChild(detailBtn);
+  if(run.maxTrips > DISPLAY_TRIPS){
+    const footer = document.createElement('div');
+    footer.id = 'bestDetailBtn';
+    footer.style.cssText = 'margin-top:.5rem;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:6px';
+    footer.innerHTML = `<span style="display:flex;gap:3px">${Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill('<span style="width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('')}</span> + ${run.maxTrips-DISPLAY_TRIPS} trips identiques`;
+    document.getElementById('bestRunSection')?.appendChild(footer);
+  }
 }
 
 /* ── Cartes compactes ────────────────────────────────────────── */
@@ -761,9 +773,48 @@ function closeModal(e){
     document.getElementById('timelineModal').style.display='none';
 }
 
-/* ── Graphe SVG pour un item ─────────────────────────────────── */
+/* ── Graphe SVG pour un item — utilise données historiques réelles ── */
+function getHistoricalKey(item){
+  const nameKey=item.name.toLowerCase().replace(/ /g,'_').replace(/-/g,'_').replace(/'/g,'');
+  return item.country+'_'+nameKey;
+}
+
 function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
-  const pts=generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs);
+  // Essayer d'abord les données historiques réelles
+  const hKey=getHistoricalKey(item);
+  const hist=HISTORICAL_DATA?.[hKey];
+
+  let pts;
+  if(hist && hist.pts && hist.pts.length>=3){
+    // Utiliser les vraies données historiques
+    // On prend les points qui correspondent à la fenêtre startTs→endTs
+    // Si pas de données dans la fenêtre, utiliser les dernières données disponibles
+    // et décaler temporellement pour la visualisation
+    const rawPts=hist.pts;
+    const firstTs=rawPts[0][0];
+    const lastTs=rawPts[rawPts.length-1][0];
+    const histDuration=lastTs-firstTs;
+    const windowDuration=endTs-startTs;
+
+    // Décaler les points pour qu'ils s'affichent dans la fenêtre actuelle
+    // en préservant le pattern cyclique
+    const offset=startTs-firstTs;
+    pts=rawPts.map(p=>({ts:p[0]+offset,qty:p[1]}));
+
+    // Si la fenêtre est plus longue que l'historique, répéter le pattern
+    if(windowDuration>histDuration){
+      const extra=[];
+      let cycle=1;
+      while(rawPts[0][0]+offset+cycle*histDuration<endTs){
+        rawPts.forEach(p=>extra.push({ts:p[0]+offset+cycle*histDuration,qty:p[1]}));
+        cycle++;
+      }
+      pts=[...pts,...extra];
+    }
+  } else {
+    // Fallback : simulation
+    pts=generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs);
+  }
   const RESTOCK=item.restockQty;
   function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}
   function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}

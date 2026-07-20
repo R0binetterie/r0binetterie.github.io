@@ -42,54 +42,50 @@
 })();
 </script>
 
-<header>
-  <div class="header-inner">
+<!-- NAVBAR UNIQUE -->
+<header class="navbar">
+  <div class="navbar-inner">
+
+    <!-- Logo -->
     <div class="logo">
       <span class="logo-icon">✈</span>
-      <div>
+      <div class="logo-text">
         <div class="logo-title">Torn Travel Optimizer</div>
-        <div class="logo-sub" data-i18n="logoSub">Maximise tes runs à l'étranger</div>
+        <div class="logo-sub" data-i18n="logoSub">Maximise tes runs</div>
       </div>
     </div>
-    <div class="header-actions">
+
+    <!-- Onglets centre -->
+    <nav class="snav-tabs">
+      <button class="snav-tab" onclick="openDropdown('profil')" id="tab-profil">🎒 <span data-i18n="profil">Profil</span></button>
+      <button class="snav-tab" onclick="openDropdown('session')" id="tab-session">⏱ <span data-i18n="session">Session</span></button>
+      <button class="snav-tab" onclick="openDropdown('filtres')" id="tab-filtres">🔍 <span data-i18n="filtres">Filtres</span></button>
+      <button class="snav-tab" onclick="openDropdown('api')" id="tab-api">🔑 API</button>
+    </nav>
+
+    <!-- Droite : capacité + lang + actions -->
+    <div class="navbar-right">
+      <div class="snav-capacity" onclick="openDropdown('profil')" title="Capacité totale">
+        <span class="cap-label" data-i18n="capaciteBase">Cap.</span>
+        <strong id="capacityDisplay">19</strong>
+      </div>
       <span id="lastFetchInfo" class="last-fetch-info"></span>
       <div class="lang-switcher">
         <button class="lang-btn active" data-lang="fr" onclick="setLang('fr')">FR</button>
         <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
       </div>
       <button id="refreshBtn" class="btn-refresh" onclick="fetchAndCompute()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-        <span data-i18n="actualiser">Actualiser YATA</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+        <span class="btn-refresh-label" data-i18n="actualiser">Actualiser YATA</span>
+      </button>
+      <button class="btn-recalc-inline" onclick="scheduleRecompute()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <span data-i18n="recalculer">Recalculer</span>
       </button>
     </div>
+
   </div>
 </header>
-
-<!-- NAVBAR SETTINGS -->
-<div class="settings-navbar" id="settingsNavbar">
-  <div class="snav-inner">
-    <button class="snav-tab" onclick="openDropdown('profil')" id="tab-profil">
-      🎒 <span data-i18n="profil">Profil</span>
-    </button>
-    <button class="snav-tab" onclick="openDropdown('session')" id="tab-session">
-      ⏱ <span data-i18n="session">Session</span>
-    </button>
-    <button class="snav-tab" onclick="openDropdown('filtres')" id="tab-filtres">
-      🔍 <span data-i18n="filtres">Filtres</span>
-    </button>
-    <button class="snav-tab" onclick="openDropdown('api')" id="tab-api">
-      🔑 <span data-i18n="cleApi">API</span>
-    </button>
-    <div class="snav-capacity" onclick="openDropdown('profil')">
-      <span data-i18n="capaciteBase">Capacité</span>
-      <strong id="capacityDisplay">19</strong>
-    </div>
-    <button class="btn-recalc-inline" onclick="scheduleRecompute()">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-      <span data-i18n="recalculer">Recalculer</span>
-    </button>
-  </div>
-</div>
 
 <!-- DROPDOWNS -->
 <div class="dropdown-overlay" id="dropdownOverlay" onclick="closeAllDropdowns()"></div>
@@ -101,10 +97,10 @@
     <div class="field-group">
       <label data-i18n="modeVol">Mode de vol</label>
       <select id="flightMode" onchange="updateCapacity();scheduleRecompute()">
-        <option value="standard">Standard (base 10 items)</option>
-        <option value="airstrip" selected>Airstrip −30% (base 15)</option>
-        <option value="wlt">WLT −50% (base 15)</option>
-        <option value="business">Business Class −70% (base 15)</option>
+        <option value="standard">Standard (10 items)</option>
+        <option value="airstrip" selected>Airstrip −30% temps vol (15 items)</option>
+        <option value="wlt">WLT −50% temps vol (15 items)</option>
+        <option value="business">Business Class −70% temps vol (15 items)</option>
       </select>
       <p class="hint">PI avec pilote / parts WLT / ticket BC ou Lingerie 10★</p>
     </div>
@@ -285,18 +281,25 @@
     </div>
   </div>
 
-  <!-- Timeline meilleur run -->
-  <div id="bestRunTimeline" style="display:none">
+  <!-- Meilleur run : timeline + détail intégré -->
+  <div id="bestRunSection" style="display:none">
     <div class="section-label" id="section_bestrun" data-i18n="meilleureRun">Meilleur run</div>
-    <div id="timelineContainer" class="timeline-scroll-wrap">
-      <div id="timelineInner" class="timeline-inner"></div>
+    <div class="best-run-card">
+      <!-- Timeline -->
+      <div id="timelineContainer" class="timeline-scroll-wrap">
+        <div id="timelineInner" class="timeline-inner"></div>
+      </div>
+      <!-- Détail intégré : graphes + items + profit -->
+      <div id="bestRunDetail" class="best-run-detail"></div>
     </div>
   </div>
 
-  <!-- Autres runs -->
-  <div id="otherRuns" style="display:none">
-    <div class="section-label" id="section_autres" data-i18n="autresOptions" style="margin-top:1.5rem">Autres options</div>
-    <div id="otherRunsList"></div>
+  <!-- Autres destinations -->
+  <div id="otherRuns" style="display:none;margin-top:1rem">
+    <button class="btn-other-toggle" id="otherRunsToggle" onclick="toggleOtherRuns()">
+      <span data-i18n="voirAutres">Voir les autres destinations</span> ▼
+    </button>
+    <div id="otherRunsList" style="display:none;margin-top:.75rem"></div>
   </div>
 
   <!-- Empty state -->
