@@ -660,72 +660,79 @@ function toggleOtherRuns(){
 
 /* ── Timeline scrollable ─────────────────────────────────────── */
 function renderTimeline(run,rank){
-  const sessionEnd=run.departTs+parseInt(document.getElementById('sessionHours').value)*3600;
-  const totalDuration=sessionEnd-run.departTs;
-  const NODE_W=140;
-  // Max 4 trips affichés, étalés sur toute la largeur du conteneur
-  const DISPLAY_TRIPS=Math.min(4,run.maxTrips);
-  // Largeur = 100% du conteneur (pas de scroll horizontal pour la timeline)
-  const totalW=0; // 0 = on utilise % relatifs
+  const DISPLAY_TRIPS = Math.min(4, run.maxTrips);
 
-  const nodes=[];
-  nodes.push({type:'depart',ts:run.departTs,label:t('depart_label')});
-  // N'afficher que les DISPLAY_TRIPS premiers trips
-  run.trips.slice(0,DISPLAY_TRIPS).forEach((trip,i)=>{
-    nodes.push({type:'arrive',ts:trip.arriveTs,country:run.country,trip:i+1,items:run.breakdown,profit:run.breakdown.reduce((s,b)=>s+b.grossProfit,0)});
-    if(trip.isLastAbroad)nodes.push({type:'abroad',ts:trip.arriveTs+5*60,label:t('resteEtranger')});
-    else nodes.push({type:'return',ts:trip.landTs,label:`${t('retour')} T${i+1}`});
+  const nodes = [];
+  nodes.push({type:'depart', ts:run.departTs, label:t('depart_label')});
+  run.trips.slice(0, DISPLAY_TRIPS).forEach((trip,i)=>{
+    nodes.push({type:'arrive', ts:trip.arriveTs, country:run.country, trip:i+1,
+      items:run.breakdown, profit:run.breakdown.reduce((s,b)=>s+b.grossProfit,0)});
+    if(trip.isLastAbroad)
+      nodes.push({type:'abroad', ts:trip.arriveTs+5*60, label:t('resteEtranger')});
+    else
+      nodes.push({type:'return', ts:trip.landTs, label:`${t('retour')} T${i+1}`});
   });
 
-  // Position en px proportionnelle au temps
-  nodes.forEach(n=>{
-    n.px=Math.round((n.ts-run.departTs)/totalDuration*(totalW-NODE_W))+NODE_W/2;
-  });
+  // Positions en % : étalées de 4% à 96%
+  const firstTs = nodes[0].ts;
+  const lastTs  = nodes[nodes.length-1].ts;
+  const span    = Math.max(lastTs - firstTs, 1);
+  nodes.forEach(n => { n.pct = 4 + ((n.ts - firstTs) / span) * 92; });
 
-  let nodesHTML='';
-  nodes.forEach((n,i)=>{
-    const above=i%2===0;
-    let dotHtml='',contentHtml='';
-    if(n.type==='depart'||n.type==='return'){
-      dotHtml=`<div class="tl-dot tl-dot-torn"></div>`;
-      contentHtml=`<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
-    }else if(n.type==='arrive'){
-      const mainItem=n.items[0];
-      const probaStr=Math.round(mainItem.stockProba*100)+'%';
-      dotHtml=`<div class="tl-dot tl-dot-country"><img src="https://flagcdn.com/20x15/${n.country.flag}.png" width="20" height="15" style="border-radius:2px;display:block" onerror="this.style.display='none'"></div>`;
-      contentHtml=`<div class="tl-nc-time">${fmtH(n.ts)}</div>
+  let nodesHTML = '';
+  nodes.forEach((n,i) => {
+    const above = i % 2 === 0;
+    const align = n.pct > 72 ? 'right' : n.pct < 28 ? 'left' : 'center';
+    const tx    = align==='right' ? 'calc(-100% + 16px)' : align==='left' ? '-16px' : '-50%';
+
+    let dot='', body='';
+    if(n.type==='depart' || n.type==='return'){
+      dot  = `<div class="tl-dot tl-dot-torn"></div>`;
+      body = `<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
+    } else if(n.type==='arrive'){
+      const mi = n.items[0];
+      dot = `<div class="tl-dot tl-dot-country">
+        <img src="https://flagcdn.com/20x15/${n.country.flag}.png" width="20" height="15"
+          style="border-radius:2px;display:block" onerror="this.style.display='none'">
+      </div>`;
+      body = `<div class="tl-nc-time">${fmtH(n.ts)}</div>
         <div class="tl-nc-country">${n.country.name}</div>
         <div class="tl-nc-item">
-          <img src="https://www.torn.com/images/items/${mainItem.tornId}/large.png" style="width:34px;height:34px;object-fit:contain;border-radius:5px;background:var(--bg3);flex-shrink:0" onerror="this.style.display='none'">
+          <img src="https://www.torn.com/images/items/${mi.tornId}/large.png"
+            style="width:32px;height:32px;object-fit:contain;border-radius:5px;background:var(--bg3);flex-shrink:0"
+            onerror="this.style.display='none'">
           <div>
-            <div style="font-size:11px;color:var(--text2)">×${mainItem.qty} ${mainItem.name}</div>
+            <div style="font-size:11px;color:var(--text2)">×${mi.qty} ${mi.name}</div>
             <div class="tl-nc-profit">+$${fmt(n.profit)}</div>
-            <div style="font-size:10px;color:var(--text3)">${probaStr} · T${n.trip}</div>
+            <div style="font-size:10px;color:var(--text3)">${Math.round(mi.stockProba*100)}% · T${n.trip}</div>
           </div>
         </div>`;
-    }else{
-      dotHtml=`<div class="tl-dot tl-dot-end"></div>`;
-      contentHtml=`<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
+    } else {
+      dot  = `<div class="tl-dot tl-dot-end"></div>`;
+      body = `<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
     }
-    const contentEl=`<div class="tl-nc" style="${above?'bottom:calc(100% + 14px)':'top:calc(100% + 14px)'};left:50%;transform:translateX(-50%);width:${NODE_W}px;text-align:center">${contentHtml}</div>`;
-    nodesHTML+=`<div class="tl-node" style="left:${n.px}px">${above?contentEl:''}${dotHtml}${!above?contentEl:''}</div>`;
+
+    const nc = `<div style="position:absolute;${above?'bottom:calc(100% + 12px)':'top:calc(100% + 12px)'};left:0;transform:translateX(${tx});width:130px;text-align:${align};pointer-events:none">${body}</div>`;
+    nodesHTML += `<div style="position:absolute;left:${n.pct.toFixed(1)}%;top:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center">
+      ${above ? nc : ''}${dot}${!above ? nc : ''}
+    </div>`;
   });
 
-  // Timeline dans le scroll
-  document.getElementById('timelineInner').innerHTML=
-    `<div class="tl-track-wrap" style="width:${totalW}px;position:relative;height:10px">
-      <div class="tl-line" style="position:absolute;top:50%;left:0;right:0;height:2px;background:var(--border2);transform:translateY(-50%)"></div>
+  document.getElementById('timelineInner').innerHTML =
+    `<div style="position:relative;width:100%;height:10px">
+      <div style="position:absolute;top:50%;left:0;right:0;height:2px;background:var(--border2);transform:translateY(-50%)"></div>
       ${nodesHTML}
     </div>`;
 
-  // Footer : "+ X trips" si plus de 4
+  // Footer "+ X trips identiques"
   const existingBtn = document.getElementById('bestDetailBtn');
   if(existingBtn) existingBtn.remove();
   if(run.maxTrips > DISPLAY_TRIPS){
     const footer = document.createElement('div');
     footer.id = 'bestDetailBtn';
-    footer.style.cssText = 'padding:.5rem 1.5rem;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)';
-    const dots=Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill(0).map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('');
+    footer.style.cssText = 'padding:.5rem 1.25rem;font-size:12px;color:var(--text3);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)';
+    const dots = Array(Math.min(run.maxTrips-DISPLAY_TRIPS,5)).fill(0)
+      .map(()=>'<span style="width:5px;height:5px;border-radius:50%;background:var(--text3);display:inline-block"></span>').join('');
     footer.innerHTML = `<span style="display:flex;gap:3px;align-items:center">${dots}</span><span>+ ${run.maxTrips-DISPLAY_TRIPS} trips identiques</span>`;
     document.getElementById('bestRunSection')?.appendChild(footer);
   }
