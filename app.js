@@ -356,7 +356,7 @@ function scheduleRecompute(){
 async function fetchAndCompute(){
   const btn=document.getElementById('refreshBtn');btn.classList.add('loading');
   setBanner('info',t('chargement'));
-  ['globalStats','bestRunTimeline','otherRuns'].forEach(id=>document.getElementById(id).style.display='none');
+  ['globalStats','bestRunSection','otherRuns'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   document.getElementById('emptyState').style.display='none';
   try{
     const r=await fetch('https://yata.yt/api/v1/travel/export/');
