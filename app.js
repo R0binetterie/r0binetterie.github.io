@@ -107,7 +107,7 @@ const T={
     prediction:'Stock prediction',stockActuel:'Current stock',
     prochainTick:'Next TCT tick',stockZero:'Stock hits 0 at',
     restockAttendu:'Restock expected between',arrivee:'Arrival',probaArr:'Probability at arrival',
-    enStock:'en stock',stockFaible:'low stock',stockTresFaible:'very low stock',
+    enStock:'in stock',stockFaible:'low stock',stockTresFaible:'very low stock',
     restockProb:'restock likely at arrival',restockLointain:'empty, restock far away',
     inconnu:'unknown',simulBasee:'Simulation based on real data (yata_tracker.py)',
     detailRun:'Run detail',depart_label:'Departure',arrivee_label:'Arrival',
@@ -131,6 +131,7 @@ function t(k){return T[currentLang]?.[k]||T.fr[k]||k;}
 function setLang(lang){
   currentLang=lang;
   localStorage.setItem('lang',lang);
+  // Mettre à jour tous les éléments avec data-i18n
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const k=el.getAttribute('data-i18n');
     el.textContent=t(k);
@@ -141,6 +142,7 @@ function setLang(lang){
   document.querySelectorAll('[data-i18n-title]').forEach(el=>{
     el.title=t(el.getAttribute('data-i18n-title'));
   });
+  // Options des selects
   document.querySelectorAll('select[data-i18n-select]').forEach(sel=>{
     const type=sel.getAttribute('data-i18n-select');
     if(type==='flightMode'){
@@ -264,6 +266,7 @@ function getBaseCapacity(){
   else if(job==='lingerie10')jobBonus=4;
   else if(job==='cruise3')jobBonus=2;
   else if(job==='cruise10')jobBonus=5;
+  // toy7 et flower7 : bonus spécifique géré dans compute()
   return base+suitcase+faction+jobBonus+smuggling;
 }
 function getJobItemBonus(type){
@@ -274,14 +277,15 @@ function getJobItemBonus(type){
 }
 function updateJobUI(){
   const job=document.getElementById('jobType').value;
+  // Si lingerie 10* → BC gratuite, forcer le mode BC
   if(job==='lingerie10'){
     document.getElementById('flightMode').value='business';
   }
 }
 function updateCapacity(){
-  const _cap=getBaseCapacity();
-  document.getElementById('capacityDisplay').textContent=_cap;
-  const d2=document.getElementById('capacityDisplay2');if(d2)d2.textContent=_cap;
+  const cap=getBaseCapacity();
+  document.getElementById('capacityDisplay').textContent=cap;
+  const d2=document.getElementById('capacityDisplay2');if(d2)d2.textContent=cap;
   const mode=document.getElementById('flightMode').value;
   const base=(mode==='standard'?10:15);
   const suit=parseInt(document.getElementById('suitcase').value)||0;
@@ -302,8 +306,10 @@ function updateCapacity(){
 
 function openDropdown(id){
   const allDDs=['profil','session','filtres','api'];
+  // Fermer si déjà ouvert (toggle)
   const dd=document.getElementById('dd-'+id);
   const wasOpen=dd.classList.contains('open');
+  // Fermer tous
   allDDs.forEach(n=>{
     document.getElementById('dd-'+n).classList.remove('open');
     document.getElementById('tab-'+n)?.classList.remove('active');
@@ -313,6 +319,7 @@ function openDropdown(id){
     dd.classList.add('open');
     document.getElementById('tab-'+id)?.classList.add('active');
     document.getElementById('dropdownOverlay').classList.add('active');
+    // Positionner la flèche sous le tab cliqué
     const tab=document.getElementById('tab-'+id);
     if(tab){
       const rect=tab.getBoundingClientRect();
@@ -381,6 +388,20 @@ async function fetchAndCompute(){
   btn.classList.remove('loading');
 }
 
+/* ── Modèle de stock basé sur position dans le cycle TCT ─────────
+   Pour les vols longs (>1h), le snapshot YATA est peu utile car
+   plusieurs cycles s'écoulent avant l'arrivée.
+   
+   Approche : à l'heure d'arrivée, on calcule combien de minutes
+   après le dernier tick TCT on se trouve, et on utilise la
+   distribution empirique TICK_RESTOCK_DIST pour calculer
+   P(restock déjà fait à ce moment).
+   
+   Résumé données (106 cycles vidage + 100 mesures tick→restock) :
+   Vidage moyen peluches : 40.7 min | Cycle total : ~55.5 min
+   Tick→Restock : P10=3.5 P50=9.4 P90=14.7 min
+──────────────────────────────────────────────────────────────── */
+
 function nextTick(ts){return Math.ceil(ts/(15*60))*(15*60);}
 function prevTick(ts){return Math.floor(ts/(15*60))*(15*60);}
 
@@ -390,10 +411,102 @@ function probaRestockDone(minutesAfterTick){
   return done/TICK_RESTOCK_DIST.length;
 }
 
+/* ── Espérance corrigée ──────────────────────────────────────────
+   Stock estimé à l'arrivée → espérance de remplissage de l'inventaire
+   Si stock >= capacité → 100% (on remplit quoi qu'il arrive)
+   Si stock < 20% capacité → dégradation linéaire jusqu'à 0
+──────────────────────────────────────────────────────────────── */
+function getStockAtTime(item, yataQty, lastUpdateTs, targetTs) {
+  // Estime le stock à un instant donné à partir du dernier snapshot YATA
+  const { restockQty, vidageMin, restockMin } = item;
+  const decay = restockQty / (vidageMin * 60);
+  const nowTs = Date.now() / 1000;
+  let stock = yataQty ?? restockQty;
+  let emptyAt = null;
+  const totalElapsed = (nowTs - lastUpdateTs) + (targetTs - nowTs);
+  for (let e = 0; e < totalElapsed; e += 30) {
+    stock = Math.max(0, stock - decay * 30);
+    if (stock === 0 && emptyAt === null) emptyAt = lastUpdateTs + e;
+    if (emptyAt !== null) {
+      const tick = nextTick(emptyAt);
+      if (lastUpdateTs + e >= tick + (restockMin || 15) * 60) { stock = restockQty; emptyAt = null; }
+    }
+  }
+  return Math.round(Math.max(0, stock));
+}
+
+function computeEsperance(item, yataQty, lastUpdateTs, targetTs, capacity) {
+  // Retourne { stockEst, esperance (0-1), proba, label, prediction }
+  const stockEst = getStockAtTime(item, yataQty, lastUpdateTs, targetTs);
+  const SEUIL = capacity * 0.2; // 20% de la capacité
+
+  let esperance;
+  if (stockEst >= capacity) {
+    esperance = 1.0; // stock largement suffisant
+  } else if (stockEst >= SEUIL) {
+    esperance = 1.0; // entre 20% et 100% de la capacité = on remplit quand même
+  } else if (stockEst > 0) {
+    esperance = stockEst / SEUIL; // dégradation linéaire de 0 à SEUIL
+  } else {
+    // Stock à 0 : espérance basée sur la proba de restock
+    const tickBefore = prevTick(targetTs);
+    const minAfterTick = (targetTs - tickBefore) / 60;
+    const probaR = probaRestockDone(minAfterTick);
+    esperance = probaR * 0.8; // si restock probable, on peut encore avoir du stock
+  }
+  esperance = Math.min(1, Math.max(0, esperance));
+
+  // Label
+  const tickBefore = prevTick(targetTs);
+  const minAfterTick = (targetTs - tickBefore) / 60;
+  const probaR = probaRestockDone(minAfterTick);
+
+  let label;
+  if (esperance >= 0.9) label = `~${stockEst} ${t('enStock')}`;
+  else if (esperance >= 0.6) label = t('stockFaible');
+  else if (esperance >= 0.3) label = t('restockProb');
+  else label = t('restockLointain');
+
+  const prediction = {
+    stockEst,
+    tickBefore: fmtH(tickBefore),
+    tickNext: fmtH(tickBefore + 15*60),
+    minAfterTick: Math.round(minAfterTick * 10) / 10,
+    probaRestockFait: Math.round(probaR * 100),
+    esperancePct: Math.round(esperance * 100),
+    dataAge: lastUpdateTs ? Math.round((Date.now()/1000 - lastUpdateTs) / 60) : null,
+  };
+
+  return { stockEst, esperance, proba: esperance, label, prediction };
+}
+
+/* ── Optimisation départ : teste 0-10 min de décalage ─────────── */
+function optimizeDepart(departTs, country, mode, capacity, yataMap, lastUpdate, canWaitAbroad, waitAbroadMin) {
+  const tOneWay = getFlightTime(country, mode);
+  const avail = ITEMS.filter(item => item.country === country.code);
+  if (!avail.length) return { bestDelay: 0, bestEsp: 0 };
+
+  let bestDelay = 0;
+  let bestEsp = -1;
+
+  for (let delay = 0; delay <= 10; delay++) {
+    const arriveTs = departTs + delay * 60 + tOneWay * 60;
+    let totalEsp = 0;
+    avail.forEach(item => {
+      const yQty = yataMap[item.tornId] ?? yataMap[item.id];
+      const { esperance } = computeEsperance(item, yQty, lastUpdate, arriveTs, capacity);
+      totalEsp += esperance;
+    });
+    if (totalEsp > bestEsp) { bestEsp = totalEsp; bestDelay = delay; }
+  }
+  return { bestDelay, bestEsp };
+}
+
 function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   const nowTs=Date.now()/1000;
   const{restockQty,vidageMin,restockMin}=item;
 
+  // Position dans le cycle TCT à l'arrivée
   const tickBefore=prevTick(targetTs);
   const tickNext=tickBefore+15*60;
   const minAfterTick=(targetTs-tickBefore)/60;
@@ -403,7 +516,9 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   let proba,label;
 
   if(item.type==='plushie'||item.type==='flower'){
+    // P(en phase de vidage = stock dispo) = vidageMin / cycleDuration
     const probaInStockPhase=Math.min(0.95,vidageMin/cycleDuration);
+    // P(en phase vide mais restock déjà fait)
     const probaVide=1-probaInStockPhase;
     const probaRestockFait=probaRestockDone(minAfterTick);
     proba=probaInStockPhase+probaVide*probaRestockFait;
@@ -414,6 +529,7 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
     else if(proba>=0.35) label=t('restockProb');
     else label=t('restockLointain');
 
+    // Si données YATA fraîches (<30 min) et vol court (<60 min) : affiner
     if(lastUpdateTs&&yataQty!==undefined&&(nowTs-lastUpdateTs)<1800&&(targetTs-nowTs)<3600){
       const decay=restockQty/(vidageMin*60);
       const stockNow=Math.max(0,yataQty-decay*(nowTs-lastUpdateTs));
@@ -441,11 +557,13 @@ function simulateStock(item,yataQty,lastUpdateTs,targetTs){
   return{qty:null,proba,label,prediction};
 }
 
+/* ── Génère la courbe de stock simulée pour un item/période ─── */
 function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
   const{restockQty,vidageMin,restockMin}=item;
   const decay=restockQty/(vidageMin*60);
   const nowTs=Date.now()/1000;
 
+  // Simuler depuis lastUpdate jusqu'au début de la fenêtre
   let stock=yataQty??restockQty;
   let emptyAt=null;
   const preElapsed=Math.max(0,startTs-lastUpdateTs);
@@ -458,6 +576,7 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
     }
   }
 
+  // Générer les points sur la fenêtre
   const pts=[];
   for(let ts=startTs;ts<=endTs;ts+=60){
     stock=Math.max(0,stock-decay*60);
@@ -465,10 +584,10 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
     if(emptyAt!==null){
       const tick=nextTick(emptyAt);
       if(ts>=tick+(restockMin||15)*60){
-        pts.push({ts,qty:0});
+        pts.push({ts,qty:0}); // juste avant le restock
         stock=restockQty;
         emptyAt=null;
-        pts.push({ts,qty:restockQty});
+        pts.push({ts,qty:restockQty}); // restock instantané
         continue;
       }
     }
@@ -477,139 +596,277 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
   return pts;
 }
 
-/* ── Calcul ──────────────────────────────────────────────────── */
-function compute(){try{
-  const mode=document.getElementById('flightMode').value;
-  const sessionMin=parseInt(document.getElementById('sessionHours').value)*60;
-  const budgetCap=parseInt(document.getElementById('travelBudget').value)||0;
-  const freshMax=parseFloat(document.getElementById('freshnessFilter').value);
-  const minFlight=parseInt(document.getElementById('minFlightTime').value)||0;
-  const maxTripsAllowed=parseInt(document.getElementById('maxTrips').value)||999;
-  const canFinishAbroad=document.getElementById('finishAbroad').value==='yes';
-  const wantPlush=document.getElementById('f_plushie').checked;
-  const wantFlower=document.getElementById('f_flower').checked;
-  const wantDrug=document.getElementById('f_drug').checked;
-  const baseCapacity=getBaseCapacity();
-  const now=Date.now()/1000,departTs=getDepartTs(),runs=[];
+/* ── Helpers pour sélection meilleur item/destination ─────────── */
+function getBestItemsForCountry(country, arriveTs, capacity, yataMap, lastUpdate, wantPlush, wantFlower, wantDrug) {
+  const avail = ITEMS.filter(item => {
+    if (item.country !== country.code) return false;
+    if (item.type === 'plushie' && !wantPlush) return false;
+    if (item.type === 'flower' && !wantFlower) return false;
+    if (item.type === 'drug' && !wantDrug) return false;
+    return true;
+  });
+  if (!avail.length) return null;
 
-  COUNTRIES.forEach(country=>{
-    if(excludedCountries.has(country.code))return;
-    const tOneWay=getFlightTime(country,mode);
-    if(tOneWay<minFlight)return;
-    const tripMin=tOneWay*2+5;
-    let maxTrips=canFinishAbroad
-      ?(sessionMin>=tOneWay?Math.floor((sessionMin-tOneWay)/tripMin)+1:0)
-      :Math.floor(sessionMin/tripMin);
-    maxTrips=Math.min(maxTrips,maxTripsAllowed);
-    if(maxTrips<1)return;
+  // Calculer espérance pour chaque item
+  const scored = avail.map(item => {
+    const sell = priceData[item.tornId] || priceData[item.name] || item.sell;
+    const yQty = yataMap[item.tornId] ?? yataMap[item.id];
+    const est = computeEsperance(item, yQty, lastUpdate, arriveTs, capacity);
+    return { ...item, effectiveSell: sell, unitProfit: sell - item.buy, ...est, yataQtyNow: yQty };
+  }).sort((a, b) => b.unitProfit * b.esperance - a.unitProfit * a.esperance);
 
-    const cs=stockData?.stocks?.[country.code]??null;
-    const lastUpdate=cs?.update??0;
-    const ageH=lastUpdate?(now-lastUpdate)/3600:Infinity;
-    if(lastUpdate&&ageH>freshMax)return;
-
-    const yataMap={};
-    if(cs?.stocks)cs.stocks.forEach(s=>{yataMap[s.id]=s.quantity;});
-
-    const avail=ITEMS.filter(item=>{
-      if(item.country!==country.code)return false;
-      if(item.type==='plushie'&&!wantPlush)return false;
-      if(item.type==='flower'&&!wantFlower)return false;
-      if(item.type==='drug'&&!wantDrug)return false;
-      return true;
-    });
-    if(!avail.length)return;
-
-    const firstArrival=departTs+tOneWay*60;
-    const sorted=avail.map(item=>{
-      const sell=priceData[item.tornId]||priceData[item.name]||item.sell;
-      const yQty=yataMap[item.tornId]??yataMap[item.id];
-      const est=simulateStock(item,yQty,lastUpdate,firstArrival);
-      return{...item,effectiveSell:sell,unitProfit:sell-item.buy,stockEst:est,yataQtyNow:yQty};
-    }).sort((a,b)=>b.unitProfit-a.unitProfit);
-
-    const breakdown=[];
-    let baseRem=baseCapacity;
-    let toyJobRem=getJobItemBonus('plushie');
-    let flowerJobRem=getJobItemBonus('flower');
-    sorted.forEach(item=>{
-      let qty=0;
-      if(baseRem>0){qty=baseRem;baseRem=0;}
-      if(item.type==='plushie'&&toyJobRem>0){qty+=toyJobRem;toyJobRem=0;}
-      if(item.type==='flower'&&flowerJobRem>0){qty+=flowerJobRem;flowerJobRem=0;}
-      if(qty<=0)return;
-      breakdown.push({
-        ...item,qty,
-        stockProba:item.stockEst.proba,
-        stockLabel:item.stockEst.label,
-        stockPred:item.stockEst.prediction,
-        grossProfit:item.unitProfit*qty,
-        adjustedProfit:item.unitProfit*qty*item.stockEst.proba,
-      });
-    });
-    if(!breakdown.length)return;
-
-    const travelCost=budgetCap>0?Math.min(budgetCap,country.cost):country.cost;
-    const rawProfitTrip=breakdown.reduce((s,b)=>s+b.grossProfit,0);
-    const adjProfitTrip=breakdown.reduce((s,b)=>s+b.adjustedProfit,0);
-    const totalTravelCost=canFinishAbroad?travelCost*2*(maxTrips-1)+travelCost:travelCost*2*maxTrips;
-    const totalProfit=adjProfitTrip*maxTrips-totalTravelCost;
-    const profitPerHour=totalProfit/(sessionMin/60);
-    const cashRequired=breakdown.reduce((s,b)=>s+b.buy*b.qty,0)+travelCost*2;
-
-    const trips=Array.from({length:maxTrips},(_,i)=>{
-      const startTs=departTs+i*(tOneWay*2+5)*60;
-      const arriveTs=startTs+tOneWay*60;
-      const returnTs=arriveTs+5*60;
-      const isLast=canFinishAbroad&&i===maxTrips-1;
-      return{startTs,arriveTs,returnTs,landTs:isLast?null:returnTs+tOneWay*60,isLastAbroad:isLast};
-    });
-
-    runs.push({
-      country,tOneWay,tripMin,maxTrips,
-      rawProfitTrip,adjProfitTrip,netPerTrip:adjProfitTrip-travelCost*2,
-      totalProfit,profitPerHour,cashRequired,
-      breakdown,lastUpdate,ageH,travelCost,trips,departTs,canFinishAbroad,
-      totalCapacity:baseCapacity+getJobItemBonus('plushie'),
-    });
+  // Allouer la capacité
+  const breakdown = [];
+  let baseRem = capacity;
+  let toyJobRem = getJobItemBonus('plushie');
+  let flowerJobRem = getJobItemBonus('flower');
+  scored.forEach(item => {
+    let qty = 0;
+    if (baseRem > 0) { qty = baseRem; baseRem = 0; }
+    if (item.type === 'plushie' && toyJobRem > 0) { qty += toyJobRem; toyJobRem = 0; }
+    if (item.type === 'flower' && flowerJobRem > 0) { qty += flowerJobRem; flowerJobRem = 0; }
+    if (qty <= 0) return;
+    const grossProfit = item.unitProfit * qty;
+    const adjProfit = grossProfit * item.esperance;
+    breakdown.push({ ...item, qty, grossProfit, adjustedProfit: adjProfit,
+      stockProba: item.esperance, stockLabel: item.label, stockPred: item.prediction });
   });
 
-  runs.sort((a,b)=>b.totalProfit-a.totalProfit);
-  window._runs=runs;
-  renderResults(runs,mode);
+  const totalEsp = breakdown.reduce((s, b) => s + b.adjustedProfit, 0);
+  return { breakdown, totalEsp };
+}
+
+/* ── Calcul trip-par-trip avec optimisation départ ─────────── */
+function compute(){try{
+  const mode = document.getElementById('flightMode').value;
+  const sessionMin = parseInt(document.getElementById('sessionHours').value) * 60;
+  const budgetCap = parseInt(document.getElementById('travelBudget').value) || 0;
+  const freshMax = parseFloat(document.getElementById('freshnessFilter').value);
+  const minFlight = parseInt(document.getElementById('minFlightTime').value) || 0;
+  const maxTripsAllowed = parseInt(document.getElementById('maxTrips').value) || 999;
+  const canFinishAbroad = document.getElementById('finishAbroad').value === 'yes';
+  const canWaitAbroad = document.getElementById('waitAbroad')?.value === 'yes' || false;
+  const wantPlush = document.getElementById('f_plushie').checked;
+  const wantFlower = document.getElementById('f_flower').checked;
+  const wantDrug = document.getElementById('f_drug').checked;
+  const baseCapacity = getBaseCapacity();
+  const now = Date.now() / 1000;
+  const sessionEndTs = getDepartTs() + sessionMin * 60;
+
+  // Construire la liste des destinations disponibles avec leurs données YATA
+  const availCountries = COUNTRIES.filter(c => {
+    if (excludedCountries.has(c.code)) return false;
+    const cs = stockData?.stocks?.[c.code] ?? null;
+    if (!cs) return true; // pas de données = on inclut quand même
+    const ageH = (now - cs.update) / 3600;
+    if (cs.update && ageH > freshMax) return false;
+    return true;
+  }).map(country => {
+    const cs = stockData?.stocks?.[country.code] ?? null;
+    const lastUpdate = cs?.update ?? 0;
+    const yataMap = {};
+    if (cs?.stocks) cs.stocks.forEach(s => { yataMap[s.id] = s.quantity; });
+    return { country, lastUpdate, yataMap, ageH: lastUpdate ? (now - lastUpdate) / 3600 : Infinity };
+  });
+
+  // ── Simulation trip-par-trip ──
+  // On génère un "run optimal" : à chaque trip on choisit la meilleure destination
+  let currentTs = getDepartTs();
+  const trips = [];
+  let totalProfit = 0;
+  let totalCash = 0;
+  let tripCount = 0;
+
+  while (tripCount < maxTripsAllowed) {
+    let bestTripOption = null;
+    let bestTripEsp = -1;
+
+    // Tester chaque destination possible pour ce trip
+    for (const { country, lastUpdate, yataMap } of availCountries) {
+      const tOneWay = getFlightTime(country, mode);
+      if (tOneWay < minFlight) continue;
+
+      const travelCost = budgetCap > 0 ? Math.min(budgetCap, country.cost) : country.cost;
+      const tripDuration = tOneWay * 2 * 60 + 5 * 60;
+
+      // Vérifier qu'on a le temps (au moins un aller-retour)
+      const returnTs = currentTs + tripDuration;
+      if (!canFinishAbroad && returnTs > sessionEndTs) continue;
+      if (canFinishAbroad && currentTs + tOneWay * 60 > sessionEndTs) continue;
+
+      // Tester 0-10 min de décalage à Torn pour optimiser l'arrivée
+      let bestDelay = 0;
+      let bestEspDelay = -1;
+      for (let delay = 0; delay <= 10; delay++) {
+        const departDelayed = currentTs + delay * 60;
+        const arriveTs = departDelayed + tOneWay * 60;
+        if (!canFinishAbroad && arriveTs + tOneWay * 60 + 5 * 60 > sessionEndTs) break;
+        const result = getBestItemsForCountry(country, arriveTs, baseCapacity, yataMap, lastUpdate, wantPlush, wantFlower, wantDrug);
+        if (!result) break;
+        if (result.totalEsp > bestEspDelay) { bestEspDelay = result.totalEsp; bestDelay = delay; }
+      }
+
+      // Calculer avec le meilleur delay
+      const departTs = currentTs + bestDelay * 60;
+      const arriveTs = departTs + tOneWay * 60;
+      const result = getBestItemsForCountry(country, arriveTs, baseCapacity, yataMap, lastUpdate, wantPlush, wantFlower, wantDrug);
+      if (!result || !result.breakdown.length) continue;
+
+      const netEsp = result.totalEsp - travelCost * 2;
+      if (netEsp > bestTripEsp) {
+        bestTripEsp = netEsp;
+        bestTripOption = {
+          country, tOneWay, lastUpdate, yataMap, travelCost,
+          departTs, waitMin: bestDelay,
+          arriveTs,
+          returnTs: arriveTs + 5 * 60,
+          landTs: arriveTs + 5 * 60 + tOneWay * 60,
+          breakdown: result.breakdown,
+          rawProfit: result.breakdown.reduce((s, b) => s + b.grossProfit, 0),
+          adjProfit: result.totalEsp,
+          netProfit: netEsp,
+          isLastAbroad: false,
+        };
+      }
+    }
+
+    if (!bestTripOption) break;
+
+    // Dernière chance : finir à l'étranger ?
+    if (canFinishAbroad && tripCount === maxTripsAllowed - 1) {
+      bestTripOption.isLastAbroad = true;
+      bestTripOption.landTs = null;
+    }
+
+    trips.push(bestTripOption);
+    totalProfit += bestTripOption.netProfit;
+    totalCash = Math.max(totalCash, bestTripOption.breakdown.reduce((s, b) => s + b.buy * b.qty, 0) + bestTripOption.travelCost * 2);
+    tripCount++;
+
+    // Avancer le temps
+    if (bestTripOption.isLastAbroad) break;
+    currentTs = bestTripOption.landTs;
+
+    // Patienter à l'étranger entre trips si activé
+    if (canWaitAbroad && tripCount < maxTripsAllowed) {
+      // Tester 0-15 min d'attente à l'étranger pour le prochain trip
+      // (logique simplifiée : on avance currentTs de 0-15 min)
+      // L'optimisation se fera au prochain tour de boucle
+    }
+  }
+
+  if (!trips.length) {
+    window._runs = [];
+    renderResults([], mode);
+    return;
+  }
+
+  // Construire le "run" final
+  const sessionMinUsed = (trips[trips.length-1].landTs || trips[trips.length-1].arriveTs) - getDepartTs();
+  const profitPerHour = totalProfit / (sessionMin / 60);
+
+  const run = {
+    trips,
+    totalProfit,
+    profitPerHour,
+    cashRequired: totalCash,
+    maxTrips: trips.length,
+    // Pour rétrocompatibilité avec les fonctions de rendu
+    country: trips[0].country,
+    breakdown: trips[0].breakdown,
+    departTs: getDepartTs(),
+    travelCost: trips[0].travelCost,
+    tOneWay: trips[0].tOneWay,
+    tripMin: trips[0].tOneWay * 2 + 5,
+    rawProfitTrip: trips[0].rawProfit,
+    adjProfitTrip: trips[0].adjProfit,
+    netPerTrip: trips[0].netProfit,
+    lastUpdate: trips[0].lastUpdate,
+    ageH: trips[0].lastUpdate ? (now - trips[0].lastUpdate) / 3600 : Infinity,
+    canFinishAbroad,
+    totalCapacity: baseCapacity + getJobItemBonus('plushie'),
+  };
+
+  // Générer aussi les runs "mono-destination" pour "Autres options"
+  const monoRuns = [];
+  for (const { country, lastUpdate, yataMap, ageH } of availCountries) {
+    const tOneWay = getFlightTime(country, mode);
+    if (tOneWay < minFlight) continue;
+    const tripMin = tOneWay * 2 + 5;
+    let maxT = canFinishAbroad
+      ? (sessionMin >= tOneWay ? Math.floor((sessionMin - tOneWay) / (tripMin)) + 1 : 0)
+      : Math.floor(sessionMin / tripMin);
+    maxT = Math.min(maxT, maxTripsAllowed);
+    if (maxT < 1) continue;
+
+    const travelCost = budgetCap > 0 ? Math.min(budgetCap, country.cost) : country.cost;
+    const firstArrival = getDepartTs() + tOneWay * 60;
+    const result = getBestItemsForCountry(country, firstArrival, baseCapacity, yataMap, lastUpdate, wantPlush, wantFlower, wantDrug);
+    if (!result || !result.breakdown.length) continue;
+
+    const adjProfitTrip = result.totalEsp;
+    const totalTravelCost = canFinishAbroad ? travelCost * 2 * (maxT - 1) + travelCost : travelCost * 2 * maxT;
+    const totalP = adjProfitTrip * maxT - totalTravelCost;
+
+    const monoTrips = Array.from({length: maxT}, (_, i) => {
+      const startTs = getDepartTs() + i * tripMin * 60;
+      const arriveTs = startTs + tOneWay * 60;
+      const returnTs = arriveTs + 5 * 60;
+      const isLast = canFinishAbroad && i === maxT - 1;
+      return { country, startTs, arriveTs, waitMin: 0, returnTs, landTs: isLast ? null : returnTs + tOneWay * 60, isLastAbroad: isLast, breakdown: result.breakdown, adjProfit: adjProfitTrip, rawProfit: result.breakdown.reduce((s,b)=>s+b.grossProfit,0), netProfit: adjProfitTrip - travelCost * 2, travelCost, lastUpdate, yataMap };
+    });
+
+    monoRuns.push({
+      country, tOneWay, tripMin, maxTrips: maxT,
+      rawProfitTrip: result.breakdown.reduce((s,b)=>s+b.grossProfit,0),
+      adjProfitTrip, netPerTrip: adjProfitTrip - travelCost * 2,
+      totalProfit: totalP, profitPerHour: totalP / (sessionMin / 60),
+      cashRequired: result.breakdown.reduce((s,b)=>s+b.buy*b.qty,0) + travelCost * 2,
+      breakdown: result.breakdown, lastUpdate, ageH, travelCost,
+      trips: monoTrips, departTs: getDepartTs(), canFinishAbroad,
+      totalCapacity: baseCapacity + getJobItemBonus('plushie'),
+    });
+  }
+
+  monoRuns.sort((a, b) => b.totalProfit - a.totalProfit);
+  window._bestRun = run;
+  window._runs = monoRuns;
+  renderResults(run, monoRuns, mode);
   }catch(err){console.error('Compute error:',err);setBanner('warn','⚠️ Erreur de calcul: '+err.message);}}
 
 /* ── Rendu ───────────────────────────────────────────────────── */
-function renderResults(runs,mode){
+function renderResults(bestRun, monoRuns, mode){
   const empty=document.getElementById('emptyState');
-  if(!runs.length){
+  if(!bestRun || !bestRun.trips || !bestRun.trips.length){
     empty.style.display='flex';
     ['globalStats','bestRunSection','otherRuns'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
     return;
   }
   empty.style.display='none';
-  const best=runs[0];
 
+  // Stats globales
   const _gs=(id,k)=>{const el=document.getElementById(id);if(el)el.textContent=t(k);};
   _gs('gs_profit_label','profit');_gs('gs_pph_label','profitH');_gs('gs_cash_label','cashRequis');_gs('gs_trips_label','trips');
-  document.getElementById('gs_profit').textContent='$'+fmt(best.totalProfit);
-  document.getElementById('gs_pph').textContent='$'+fmt(best.profitPerHour)+'/h';
-  document.getElementById('gs_cash').textContent='$'+fmt(best.cashRequired);
-  document.getElementById('gs_trips').textContent=best.maxTrips;
+  document.getElementById('gs_profit').textContent='$'+fmt(bestRun.totalProfit);
+  document.getElementById('gs_pph').textContent='$'+fmt(bestRun.profitPerHour)+'/h';
+  document.getElementById('gs_cash').textContent='$'+fmt(bestRun.cashRequired);
+  document.getElementById('gs_trips').textContent=bestRun.maxTrips;
   document.getElementById('globalStats').style.display='grid';
 
+  // Meilleur run : timeline + détail intégré
   const _sb=document.getElementById('section_bestrun');if(_sb)_sb.textContent=t('meilleureRun');
   document.getElementById('bestRunSection').style.display='block';
-  renderTimeline(best,0);
-  document.getElementById('bestRunDetail').innerHTML=buildDetailHTML(best);
+  renderTimeline(bestRun, 0);
+  document.getElementById('bestRunDetail').innerHTML=buildDetailHTML(bestRun);
 
-  if(runs.length>1){
+  // Autres destinations — cachées par défaut
+  if(monoRuns && monoRuns.length>0){
     document.getElementById('otherRuns').style.display='block';
     document.getElementById('otherRunsList').style.display='none';
     const toggle=document.getElementById('otherRunsToggle');
-    if(toggle)toggle.textContent=`▼ ${runs.length-1} autres destinations`;
+    if(toggle)toggle.textContent=`▼ ${monoRuns.length} autres destinations`;
     const list=document.getElementById('otherRunsList');list.innerHTML='';
-    runs.slice(1).forEach((run,i)=>list.appendChild(buildCompactCard(run,i+1)));
+    monoRuns.forEach((run,i)=>list.appendChild(buildCompactCard(run,i)));
   }else{
     const el=document.getElementById('otherRuns');if(el)el.style.display='none';
   }
@@ -632,14 +889,21 @@ function renderTimeline(run,rank){
   const nodes = [];
   nodes.push({type:'depart', ts:run.departTs, label:t('depart_label')});
   run.trips.slice(0, DISPLAY_TRIPS).forEach((trip,i)=>{
-    nodes.push({type:'arrive', ts:trip.arriveTs, country:run.country, trip:i+1,
-      items:run.breakdown, profit:run.breakdown.reduce((s,b)=>s+b.grossProfit,0)});
+    // Attente à Torn (waitMin > 0) → nœud rose
+    if(trip.waitMin > 0){
+      nodes.push({type:'wait', ts:trip.departTs - trip.waitMin*60, waitMin:trip.waitMin});
+    }
+    const country = trip.country || run.country;
+    const breakdown = trip.breakdown || run.breakdown;
+    const profit = breakdown.reduce((s,b)=>s+b.grossProfit,0);
+    nodes.push({type:'arrive', ts:trip.arriveTs, country, trip:i+1, items:breakdown, profit});
     if(trip.isLastAbroad)
       nodes.push({type:'abroad', ts:trip.arriveTs+5*60, label:t('resteEtranger')});
     else
       nodes.push({type:'return', ts:trip.landTs, label:`${t('retour')} T${i+1}`});
   });
 
+  // Positions en % : étalées de 4% à 96%
   const firstTs = nodes[0].ts;
   const lastTs  = nodes[nodes.length-1].ts;
   const span    = Math.max(lastTs - firstTs, 1);
@@ -652,7 +916,10 @@ function renderTimeline(run,rank){
     const tx    = align==='right' ? 'calc(-100% + 16px)' : align==='left' ? '-16px' : '-50%';
 
     let dot='', body='';
-    if(n.type==='depart' || n.type==='return'){
+    if(n.type==='wait'){
+      dot  = `<div class="tl-dot" style="background:#ec4899;border-color:var(--bg2)"></div>`;
+      body = `<div class="tl-nc-time" style="color:#ec4899">${fmtH(n.ts)}</div><div class="tl-nc-label" style="color:#ec4899">⏳ +${n.waitMin}min</div>`;
+    } else if(n.type==='depart' || n.type==='return'){
       dot  = `<div class="tl-dot tl-dot-torn"></div>`;
       body = `<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
     } else if(n.type==='arrive'){
@@ -664,8 +931,7 @@ function renderTimeline(run,rank){
       </div>`;
       body = `<div class="tl-nc-time">${fmtH(n.ts)}</div>
         <div class="tl-nc-country">${n.country.name}</div>
-        <div style="font-size:10px;margin-top:2px;color:${probaColor};font-weight:600">+$${fmt(n.profit)}</div>
-        <div style="font-size:9px;color:var(--text3)">${Math.round(mi.stockProba*100)}% stock · T${n.trip}</div>`;
+        <div style="font-size:10px;margin-top:1px;color:${probaColor};font-weight:600">+$${fmt(n.profit)} · ${Math.round(mi.stockProba*100)}%</div>`;
     } else {
       dot  = `<div class="tl-dot tl-dot-end"></div>`;
       body = `<div class="tl-nc-time">${fmtH(n.ts)}</div><div class="tl-nc-label">${n.label}</div>`;
@@ -677,6 +943,13 @@ function renderTimeline(run,rank){
     </div>`;
   });
 
+  document.getElementById('timelineInner').innerHTML =
+    `<div style="position:relative;width:100%;height:10px">
+      <div style="position:absolute;top:50%;left:0;right:0;height:2px;background:var(--border2);transform:translateY(-50%)"></div>
+      ${nodesHTML}
+    </div>`;
+
+  // Badge "+ X trips" affiché DANS la track, collé à droite
   const moreTripsHTML = run.maxTrips > DISPLAY_TRIPS ? (() => {
     const n = run.maxTrips - DISPLAY_TRIPS;
     const dots = Array(Math.min(n,5)).fill(0)
@@ -737,24 +1010,94 @@ function closeModal(e){
     document.getElementById('timelineModal').style.display='none';
 }
 
+/* ── Courbe historique ancrée sur stock YATA ────────────────────
+   Logique :
+   1. Prendre les points bruts du JSON (vraies irrégularités)
+   2. Trouver dans l'historique le moment où le stock ≈ yataQty
+   3. Décaler les timestamps pour commencer à startTs
+   4. Si la session dépasse la durée de l'historique → répéter le pattern
+──────────────────────────────────────────────────────────────── */
+function buildHistoricalCurve(item, hKey, hist, yataQty, lastUpdateTs, startTs, endTs) {
+  const windowDuration = endTs - startTs;
+
+  // Pas de données historiques → fallback simulation
+  if (!hist || !hist.pts || hist.pts.length < 5) {
+    return generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
+  }
+
+  const rawPts = hist.pts; // [[ts, qty], ...]
+  const histFirstTs = rawPts[0][0];
+  const histLastTs  = rawPts[rawPts.length-1][0];
+  const histDuration = histLastTs - histFirstTs;
+
+  // Trouver le point d'ancrage : moment dans l'historique où qty ≈ yataQty
+  // Si pas de données YATA fraîches → partir du début du cycle historique
+  let anchorIdx = 0;
+  if (yataQty !== null && yataQty !== undefined && lastUpdateTs) {
+    const nowTs = Date.now() / 1000;
+    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
+
+    // Chercher dans l'historique le point qui correspond le mieux au stock actuel
+    // On cherche le point avec qty le plus proche de yataQty dans une phase descendante
+    let bestDiff = Infinity;
+    for (let i = 0; i < rawPts.length; i++) {
+      const diff = Math.abs(rawPts[i][1] - yataQty);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        anchorIdx = i;
+      }
+    }
+  }
+
+  // Décaler les timestamps : anchorIdx correspond à startTs
+  const tsOffset = startTs - rawPts[anchorIdx][0];
+  let basePts = rawPts.map(p => ({ ts: p[0] + tsOffset, qty: p[1] }));
+
+  // Ajouter des cycles si la session dépasse la durée de l'historique
+  const needed = endTs - (basePts[basePts.length-1].ts);
+  if (needed > 0) {
+    let cycles = 1;
+    while (cycles * histDuration < needed + histDuration) {
+      const cycleOffset = tsOffset + cycles * histDuration;
+      rawPts.forEach(p => {
+        basePts.push({ ts: p[0] + cycleOffset, qty: p[1] });
+      });
+      cycles++;
+    }
+  }
+
+  // Filtrer pour ne garder que la fenêtre startTs → endTs
+  return basePts.filter(p => p.ts >= startTs - 60 && p.ts <= endTs + 60);
+}
+
+/* ── Graphe SVG pour un item — utilise données historiques réelles ── */
 function getHistoricalKey(item){
   const nameKey=item.name.toLowerCase().replace(/ /g,'_').replace(/-/g,'_').replace(/'/g,'');
   return item.country+'_'+nameKey;
 }
 
-/* ── Graphe SVG pour un item ── */
 function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
+  // Essayer d'abord les données historiques réelles
+  const hKey=getHistoricalKey(item);
+  const hist=HISTORICAL_DATA?.[hKey];
+
+  // Utiliser les vraies courbes JSON si disponibles, ancrées sur le stock YATA actuel
   const hKey = getHistoricalKey(item);
   const hist = HISTORICAL_DATA?.[hKey];
   let pts;
 
   if(hist && hist.pts && hist.pts.length >= 5 && yataQty !== null && yataQty !== undefined && lastUpdateTs){
     const rawPts = hist.pts.map(p => [p[0], p[1]]);
+    const histMax = hist.max || item.restockQty;
     const windowDur = endTs - startTs;
     const histDur = rawPts[rawPts.length-1][0] - rawPts[0][0];
 
+    // Trouver dans les données historiques un point avec quantité proche de yataQty
+    // pour ancrer le décalage temporel
     const nowTs = Date.now()/1000;
+    const dataAge = nowTs - lastUpdateTs; // âge des données YATA en secondes
 
+    // Chercher le point historique le plus proche de yataQty
     let bestIdx = 0;
     let bestDiff = Infinity;
     rawPts.forEach((p, i) => {
@@ -762,9 +1105,12 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
       if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
     });
 
+    // Décaler les données historiques pour que rawPts[bestIdx] corresponde à lastUpdateTs
     const anchorHistTs = rawPts[bestIdx][0];
     const offset = lastUpdateTs - anchorHistTs;
 
+    // Générer les points sur la fenêtre startTs→endTs
+    // En répétant le pattern historique si nécessaire
     pts = [];
     let cycleOffset = 0;
     while(true){
@@ -776,36 +1122,34 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
       });
       cycleOffset += histDur;
       if(rawPts[0][0] + offset + cycleOffset > endTs) break;
-      if(cycleOffset > windowDur * 3) break;
+      if(cycleOffset > windowDur * 3) break; // sécurité
     }
     pts.sort((a,b) => a.ts - b.ts);
 
+    // Si pas assez de points dans la fenêtre, fallback simulation
     if(pts.length < 3) pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
   } else {
     pts = generateStockCurve(item, yataQty, lastUpdateTs, startTs, endTs);
   }
-  
-  const RESTOCK = item.restockQty;
-  
-  function tsX(ts){
-    return ((ts - startTs) / (endTs - startTs) * W).toFixed(1);
-  }
-  function qY(q){
-    return (H - (q / RESTOCK) * H).toFixed(1);
-  }
+  const RESTOCK=item.restockQty;
+  function tsX(ts){return((ts-startTs)/(endTs-startTs)*W).toFixed(1);}
+  function qY(q){return(H-(q/RESTOCK)*H).toFixed(1);}
 
+  // Chemin avec restock vertical
   let d='';
   for(let i=0;i<pts.length;i++){
     const p=pts[i];
     if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}
     const prev=pts[i-1];
     if(p.qty>prev.qty*2&&prev.qty<100){
+      // Restock instantané : descendre à 0 puis monter verticalement
       d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;
     }else{
       d+=` L${tsX(p.ts)},${qY(p.qty)}`;
     }
   }
 
+  // Ticks TCT
   let ticks='';
   let tk=Math.ceil(startTs/(15*60))*15*60;
   while(tk<=endTs){
@@ -814,6 +1158,7 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
     tk+=15*60;
   }
 
+  // Events : départ (bleu) + arrivée (rouge)
   let evs='';
   trips.forEach(trip=>{
     if(trip.startTs>=startTs&&trip.startTs<=endTs)
@@ -822,6 +1167,7 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
       evs+=`<line x1="${tsX(trip.arriveTs)}" y1="0" x2="${tsX(trip.arriveTs)}" y2="${H}" stroke="#ef4444" stroke-width="2"/>`;
   });
 
+  // Labels horaires
   let lbls='';
   let lt=Math.ceil(startTs/(30*60))*30*60;
   while(lt<=endTs){
@@ -829,6 +1175,7 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
     lt+=30*60;
   }
 
+  // Modèle info
   const model=item.modelKey?STOCK_MODELS[item.modelKey]:null;
   const modelInfo=model?`${model.cycles} ${t('cyclesMesures')} · vidage ~${model.vidageMin}min · restock ~${model.restockMin}min`:'';
 
@@ -850,32 +1197,139 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
   </div>`;
 }
 
+/* ── Graphe multi-destinations continu ───────────────────────── */
+function buildMultiDestChart(run, startTs, endTs, W, H) {
+  const trips = run.trips;
+  if (!trips || !trips.length) return '';
+
+  // Regrouper les tronçons consécutifs par pays
+  const segments = [];
+  let curCountry = null, segStart = startTs;
+
+  trips.forEach((trip, i) => {
+    const country = trip.country || run.country;
+    const breakdown = trip.breakdown || run.breakdown;
+    const mainItem = breakdown[0];
+    const segEnd = trip.landTs || trip.arriveTs + 30*60;
+
+    if (curCountry && curCountry.code === country.code) {
+      // Même pays → prolonger le segment
+      segments[segments.length-1].segEnd = segEnd;
+      segments[segments.length-1].arrivals.push({ts:trip.arriveTs, tripNum:i+1});
+      if(trip.departTs) segments[segments.length-1].departures.push({ts:trip.departTs});
+    } else {
+      // Nouveau pays
+      if (curCountry) segments[segments.length-1].segEnd = trip.departTs || trip.arriveTs - (trip.tOneWay||0)*60;
+      segments.push({
+        country, mainItem, breakdown,
+        segStart: trip.departTs || trip.arriveTs - (trip.tOneWay||0)*60,
+        segEnd,
+        arrivals: [{ts:trip.arriveTs, tripNum:i+1}],
+        departures: trip.departTs ? [{ts:trip.departTs}] : [],
+        yataQtyNow: mainItem?.yataQtyNow,
+        lastUpdate: trip.lastUpdate || run.lastUpdate,
+        yataMap: trip.yataMap || {},
+      });
+      curCountry = country;
+    }
+  });
+
+  // Générer un SVG par segment
+  const svgs = segments.map((seg, si) => {
+    const item = seg.mainItem;
+    if (!item) return '';
+    const hKey = getHistoricalKey(item);
+    const hist = HISTORICAL_DATA?.[hKey];
+    const pts = buildHistoricalCurve(item, seg.yataQtyNow, seg.lastUpdate, seg.segStart, seg.segEnd);
+    const RESTOCK = item.restockQty;
+    const segW = Math.round((seg.segEnd - seg.segStart) / (endTs - startTs) * W);
+    if (segW < 10) return '';
+
+    function tsX(ts){ return ((ts - seg.segStart) / (seg.segEnd - seg.segStart) * segW).toFixed(1); }
+    function qY(q){ return (H - (q / RESTOCK) * H).toFixed(1); }
+
+    // Chemin
+    let d = '';
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i];
+      if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}
+      const prev=pts[i-1];
+      if(p.qty>prev.qty*2&&prev.qty<100){
+        d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;
+      }else{d+=` L${tsX(p.ts)},${qY(p.qty)}`;}
+    }
+
+    // Ticks TCT
+    let ticks='';
+    let tk = Math.ceil(seg.segStart/(15*60))*(15*60);
+    while(tk<=seg.segEnd){ticks+=`<line x1="${tsX(tk)}" y1="0" x2="${tsX(tk)}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;tk+=15*60;}
+
+    // Arrivées (rouge) et départs (bleu)
+    let evs = '';
+    seg.arrivals.forEach(a=>{if(a.ts>=seg.segStart&&a.ts<=seg.segEnd)evs+=`<line x1="${tsX(a.ts)}" y1="0" x2="${tsX(a.ts)}" y2="${H}" stroke="#ef4444" stroke-width="2"/><text x="${tsX(a.ts)}" y="${H-4}" font-size="8" fill="#ef4444" text-anchor="middle">T${a.tripNum}</text>`;});
+    seg.departures.forEach(d2=>{if(d2.ts>=seg.segStart&&d2.ts<=seg.segEnd)evs+=`<line x1="${tsX(d2.ts)}" y1="0" x2="${tsX(d2.ts)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;});
+
+    // Labels horaires
+    let lbls='';
+    let lt=Math.ceil(seg.segStart/(30*60))*30*60;
+    while(lt<=seg.segEnd){lbls+=`<text x="${tsX(lt)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;lt+=30*60;}
+
+    // Label pays en haut
+    const flag = seg.country.flag;
+
+    return `<div style="display:inline-block;vertical-align:top;${si>0?'border-left:2px dashed var(--border2);':''}">
+      <div style="font-size:10px;color:${TYPE_COLORS[item.type]||'#888'};padding:2px 4px;display:flex;align-items:center;gap:4px">
+        <img src="https://flagcdn.com/14x11/${flag}.png" width="14" height="11" style="border-radius:1px" onerror="this.style.display='none'">
+        ${item.name}
+      </div>
+      <svg viewBox="0 0 ${segW} ${H+16}" width="${segW}" height="${H+16}" style="display:block">
+        <text x="2" y="9" font-size="8" fill="rgba(255,255,255,.2)">${RESTOCK}</text>
+        <text x="2" y="${H-1}" font-size="8" fill="rgba(255,255,255,.2)">0</text>
+        ${ticks}${evs}
+        <path d="${d} L${segW},${H} L0,${H} Z" fill="rgba(79,126,248,.08)"/>
+        <path d="${d}" fill="none" stroke="#4f7ef8" stroke-width="1.5"/>
+        ${lbls}
+      </svg>
+    </div>`;
+  }).join('');
+
+  return `<div style="margin-bottom:1rem">
+    <div class="stock-chart-wrap" style="overflow-x:auto">
+      <div style="display:flex;min-width:300px">${svgs}</div>
+    </div>
+  </div>`;
+}
+
 /* ── Contenu modal ───────────────────────────────────────────── */
 function buildDetailHTML(run){
   const sessionMin=parseInt(document.getElementById('sessionHours').value)*60;
   const startTs=run.departTs;
   const endTs=run.departTs+sessionMin*60;
-  const W=900;
+  const W=900;  // sera adapté par le viewBox SVG responsive
   const H=120;
 
-  const chartsHTML=run.breakdown.map(b=>{
-    return buildItemChart(b,b.yataQtyNow,run.lastUpdate,startTs,endTs,run.trips,W,H);
-  }).join('');
+  // Graphe continu multi-destinations
+  // Pour chaque tronçon de trip, afficher la courbe du pays correspondant
+  const chartsHTML = buildMultiDestChart(run, startTs, endTs, W, H);
 
+  // Prédiction du premier trip
   const mainItem=run.breakdown[0];
   const firstTrip=run.trips[0];
   const pred=mainItem?.stockPred;
   let predHTML='';
   if(pred){
+    // Couleur selon probabilité
     const proba = Math.round(mainItem.stockProba*100);
     const probaColor = proba>=75?'var(--green)':proba>=40?'#f5a623':'var(--red)';
     const probaIcon = proba>=75?'✅':proba>=40?'⚠️':'❌';
 
+    // Scénario textuel basé sur le nouveau modèle TCT
     const model = mainItem.modelKey ? STOCK_MODELS[mainItem.modelKey] : null;
     const nCycles = model?.cycles || '?';
     let scenario = '';
 
     if(pred.tickBefore){
+      // Nouveau modèle : position dans le cycle TCT
       scenario = `
         Arrivée à <b style="color:#ef4444">${fmtH(firstTrip.arriveTs)}</b> —
         soit <b>${pred.minAfterTick} min</b> après le tick TCT de <b style="color:#c8f542">${pred.tickBefore}</b>
@@ -907,6 +1361,7 @@ function buildDetailHTML(run){
     </div>`;
   }
 
+  // Items
   const itemRows=run.breakdown.map(b=>{
     const color=TYPE_COLORS[b.type]||'#888';
     const barW=Math.round(b.stockProba*100);
@@ -927,6 +1382,7 @@ function buildDetailHTML(run){
     </div>`;
   }).join('');
 
+  // Profit
   const avgProba=Math.round(run.breakdown.reduce((s,b)=>s+b.stockProba,0)/run.breakdown.length*100);
   const profitExplain=`<div class="profit-explain">
     <div class="pe-row"><span>${t('profitBrut')}</span><span>$${fmt(run.rawProfitTrip)}</span></div>
@@ -937,6 +1393,7 @@ function buildDetailHTML(run){
     <div class="pe-row pe-total"><span>× ${run.maxTrips} trips</span><span class="green">$${fmt(run.totalProfit)}</span></div>
   </div>`;
 
+  // Trips
   const tripRows=run.trips.slice(0,3).map((tr,i)=>`
     <div class="tl-trip-row">
       <span class="tl-trip-num">T${i+1}</span>
