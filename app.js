@@ -1262,16 +1262,24 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     }
     function qY(q){ return (H - (q / RESTOCK) * H).toFixed(1); }
 
-    // Chemin
+    // Chemin — filtrer les NaN
     let d = '';
+    let started = false;
     for(let i=0;i<pts.length;i++){
       const p=pts[i];
-      if(i===0){d+=`M${tsX(p.ts)},${qY(p.qty)}`;continue;}
+      const x=parseFloat(tsX(p.ts));
+      const y=parseFloat(qY(p.qty));
+      if(isNaN(x)||isNaN(y)) continue;
+      if(!started){d+=`M${x},${y}`;started=true;continue;}
       const prev=pts[i-1];
-      if(p.qty>prev.qty*2&&prev.qty<100){
-        d+=` L${tsX(p.ts)},${qY(0)} L${tsX(p.ts)},${qY(p.qty)}`;
-      }else{d+=` L${tsX(p.ts)},${qY(p.qty)}`;}
+      if(prev && p.qty>prev.qty*2&&prev.qty<100){
+        const y0=parseFloat(qY(0));
+        if(!isNaN(y0)) d+=` L${x},${y0} L${x},${y}`;
+      }else{
+        d+=` L${x},${y}`;
+      }
     }
+    if(!started) return ''; // skip ce segment si pas de points valides
 
     // Ticks TCT
     let ticks='';
