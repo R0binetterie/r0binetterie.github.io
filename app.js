@@ -423,7 +423,10 @@ function getStockAtTime(item, yataQty, lastUpdateTs, targetTs) {
   const nowTs = Date.now() / 1000;
   let stock = yataQty ?? restockQty;
   let emptyAt = null;
-  const totalElapsed = (nowTs - lastUpdateTs) + (targetTs - nowTs);
+  // Borner l'elapsed pour éviter les boucles infinies (max 48h)
+  const validLU = lastUpdateTs && lastUpdateTs > nowTs - 48*3600;
+  const totalElapsed = validLU ? Math.min((nowTs - lastUpdateTs) + (targetTs - nowTs), 48*3600) : Math.min(targetTs - nowTs, 48*3600);
+  if(!validLU) stock = yataQty ?? restockQty;
   for (let e = 0; e < totalElapsed; e += 30) {
     stock = Math.max(0, stock - decay * 30);
     if (stock === 0 && emptyAt === null) emptyAt = lastUpdateTs + e;
@@ -570,9 +573,12 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
   const nowTs=Date.now()/1000;
 
   // Simuler depuis lastUpdate jusqu'au début de la fenêtre
+  // Si lastUpdateTs est invalide (0 ou trop vieux), partir du stock plein
   let stock=yataQty??restockQty;
   let emptyAt=null;
-  const preElapsed=Math.max(0,startTs-lastUpdateTs);
+  const validLastUpdate = lastUpdateTs && lastUpdateTs > startTs - 24*3600; // max 24h d'écart
+  const preElapsed = validLastUpdate ? Math.max(0, startTs - lastUpdateTs) : 0;
+  if(!validLastUpdate) stock = yataQty ?? restockQty; // ancrer sur stock YATA ou plein
   for(let e=0;e<preElapsed;e+=30){
     stock=Math.max(0,stock-decay*30);
     if(stock===0&&emptyAt===null)emptyAt=lastUpdateTs+e;
@@ -664,7 +670,7 @@ function compute(){try{
   const minFlight = parseInt(document.getElementById('minFlightTime').value) || 0;
   const maxTripsAllowed = parseInt(document.getElementById('maxTrips').value) || 999;
   const canFinishAbroad = document.getElementById('finishAbroad').value === 'yes';
-  const canWaitAbroad = document.getElementById('waitAbroad')?.value === 'yes' || false;
+  const canWaitAbroad = (document.getElementById('waitAbroad')?.value ?? 'no') === 'yes';
   const wantPlush = document.getElementById('f_plushie').checked;
   const wantFlower = document.getElementById('f_flower').checked;
   const wantDrug = document.getElementById('f_drug').checked;
