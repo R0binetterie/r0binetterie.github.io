@@ -588,10 +588,11 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
     }
   }
 
-  // Générer les points sur la fenêtre
+  // Générer les points sur la fenêtre avec pas de 30s
   const pts=[];
-  for(let ts=startTs;ts<=endTs;ts+=60){
-    stock=Math.max(0,stock-decay*60);
+  const STEP=30;
+  for(let ts=startTs;ts<=endTs;ts+=STEP){
+    stock=Math.max(0,stock-decay*STEP);
     if(stock===0&&emptyAt===null)emptyAt=ts;
     if(emptyAt!==null){
       const tick=nextTick(emptyAt);
@@ -599,7 +600,7 @@ function generateStockCurve(item,yataQty,lastUpdateTs,startTs,endTs){
         pts.push({ts,qty:0}); // juste avant le restock
         stock=restockQty;
         emptyAt=null;
-        pts.push({ts,qty:restockQty}); // restock instantané
+        pts.push({ts,qty:restockQty}); // restock instantané vertical
         continue;
       }
     }
@@ -1215,99 +1216,142 @@ function buildItemChart(item,yataQty,lastUpdateTs,startTs,endTs,trips,W,H){
 }
 
 /* ── Graphe multi-destinations continu ───────────────────────── */
-function buildMultiDestChart(run, startTs, endTs, W, H) {
+function buildMultiDestChart(run, sessionStartTs, sessionEndTs, W, H) {
   const trips = run.trips;
   if (!trips || !trips.length) return '';
 
-  // Regrouper les tronçons consécutifs par pays
+  // Pour chaque trip, on génère une courbe ancrée sur le stock YATA actuel
+  // La courbe couvre startTs → landTs du trip
+  // Si même pays que le trip précédent → même courbe continue
+  
+  // Construire les segments (un par groupe de trips consécutifs au même pays)
   const segments = [];
-  let curCountry = null, segStart = startTs;
+  let prevCode = null;
 
   trips.forEach((trip, i) => {
     const country = trip.country || run.country;
-    const breakdown = trip.breakdown || run.breakdown;
-    const mainItem = breakdown[0];
-    // segEnd = moment du retour à Torn de CE trip spécifique
-    const tripSegEnd = trip.landTs || (trip.returnTs ? trip.returnTs + (trip.tOneWay||30)*60 : trip.arriveTs + 30*60);
+    const item = (trip.breakdown || run.breakdown)[0];
+    if (!item) return;
 
-    if (curCountry && curCountry.code === country.code) {
-      // Même pays consécutif → fusionner les segments
-      segments[segments.length-1].segEnd = tripSegEnd;
-      segments[segments.length-1].arrivals.push({ts:trip.arriveTs, tripNum:i+1});
-      if(trip.departTs) segments[segments.length-1].departures.push({ts:trip.departTs});
+    const tripStart = trip.startTs || trip.departTs || sessionStartTs;
+    const tripEnd   = trip.landTs  || trip.arriveTs + 60*60;
+
+    if (prevCode === country.code && segments.length > 0) {
+      // Même pays : étendre le segment
+      segments[segments.length-1].tripEnd = tripEnd;
+      segments[segments.length-1].arrivals.push({ts: trip.arriveTs, tripNum: i+1});
     } else {
-      // Nouveau pays → nouveau segment
-      const segStartTs = trip.startTs || trip.departTs || (trip.arriveTs - (trip.tOneWay||run.tOneWay||30)*60);
       segments.push({
-        country, mainItem, breakdown,
-        segStart: segStartTs,
-        segEnd: tripSegEnd,
-        arrivals: [{ts:trip.arriveTs, tripNum:i+1}],
-        departures: [],
-        yataQtyNow: mainItem?.yataQtyNow,
-        lastUpdate: trip.lastUpdate || run.lastUpdate,
-        yataMap: trip.yataMap || {},
+        country,
+        item,
+        yataQty: item.yataQtyNow,
+        lastUpdate: trip.lastUpdate || run.lastUpdate || 0,
+        tripStart,
+        tripEnd,
+        arrivals: [{ts: trip.arriveTs, tripNum: i+1}],
+        departures: trip.departTs ? [{ts: trip.departTs}] : [],
       });
-      curCountry = country;
+      prevCode = country.code;
     }
   });
 
+  const totalDuration = sessionEndTs - sessionStartTs;
+
   // Générer un SVG par segment
-  const svgs = segments.map((seg, si) => {
-    const item = seg.mainItem;
-    if (!item) return '';
-    const hKey = getHistoricalKey(item);
-    const hist = HISTORICAL_DATA?.[hKey];
+  const svgParts = segments.map((seg, si) => {
+    const item = seg.item;
+    if (!item || !item.vidageMin) return '';
+
+    const segDur = seg.tripEnd - seg.tripStart;
+    const segW   = Math.max(20, Math.round(segDur / totalDuration * W));
     const RESTOCK = item.restockQty || 2500;
-    const segW = Math.max(10, Math.round((seg.segEnd - seg.segStart) / Math.max(endTs - startTs, 1) * W));
-    const pts = buildHistoricalCurve(item, seg.yataQtyNow, seg.lastUpdate || 0, seg.segStart, seg.segEnd);
 
-    function tsX(ts){ 
-      const v = (seg.segEnd - seg.segStart) > 0 ? ((ts - seg.segStart) / (seg.segEnd - seg.segStart) * segW) : 0;
-      return isNaN(v) ? 0 : v.toFixed(1); 
+    // Ancrer la courbe sur le stock YATA actuel à lastUpdate
+    // puis simuler jusqu'à la fin du segment
+    const pts = generateStockCurve(
+      item,
+      seg.yataQty,
+      seg.lastUpdate,
+      seg.tripStart,
+      seg.tripEnd
+    );
+
+    if (!pts || pts.length < 2) return '';
+
+    // Fonctions de projection
+    function tsX(ts) {
+      return ((ts - seg.tripStart) / segDur * segW).toFixed(1);
     }
-    function qY(q){ return (H - (q / RESTOCK) * H).toFixed(1); }
+    function qY(q) {
+      return (H - (Math.max(0, Math.min(q, RESTOCK)) / RESTOCK) * H).toFixed(1);
+    }
 
-    // Chemin SVG depuis les points
-    // pts contient {ts, qty} — on filtre la fenêtre seg.segStart→seg.segEnd
-    const filteredPts = pts.filter(p => p.ts >= seg.segStart - 60 && p.ts <= seg.segEnd + 60);
+    // Construire le chemin SVG
     let d = '';
-    for(let i=0;i<filteredPts.length;i++){
-      const p=filteredPts[i];
-      const x=parseFloat(tsX(p.ts));
-      const y=parseFloat(qY(p.qty));
-      if(isNaN(x)||isNaN(y)||x<-1||x>segW+1) continue;
-      if(d===''){d=`M${Math.max(0,x).toFixed(1)},${y}`;continue;}
-      const prev=filteredPts[i-1];
-      if(prev && p.qty>prev.qty*2 && prev.qty<100){
-        d+=` L${x.toFixed(1)},${qY(0)} L${x.toFixed(1)},${y}`;
-      }else{
-        d+=` L${x.toFixed(1)},${y}`;
+    for (let i = 0; i < pts.length; i++) {
+      const p   = pts[i];
+      const x   = parseFloat(tsX(p.ts));
+      const y   = parseFloat(qY(p.qty));
+      if (isNaN(x) || isNaN(y)) continue;
+      if (x < -1 || x > segW + 1) continue;
+      const cx = Math.max(0, Math.min(segW, x)).toFixed(1);
+
+      if (d === '') {
+        d = `M${cx},${y}`;
+      } else {
+        const prev = pts[i - 1];
+        if (prev && p.qty > prev.qty * 1.5 && prev.qty < RESTOCK * 0.1) {
+          // Restock : ligne verticale
+          d += ` L${cx},${qY(0)} L${cx},${y}`;
+        } else {
+          d += ` L${cx},${y}`;
+        }
       }
     }
-    if(!d) d=`M0,${H} L${segW},${H}`; // ligne vide si aucun point
 
-    // Ticks TCT
-    let ticks='';
-    let tk = Math.ceil(seg.segStart/(15*60))*(15*60);
-    while(tk<=seg.segEnd){ticks+=`<line x1="${tsX(tk)}" y1="0" x2="${tsX(tk)}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;tk+=15*60;}
+    if (!d) return '';
+
+    // Ticks TCT (toutes les 15 min)
+    let ticks = '';
+    let tk = Math.ceil(seg.tripStart / (15*60)) * (15*60);
+    while (tk <= seg.tripEnd) {
+      const x = parseFloat(tsX(tk));
+      if (x >= 0 && x <= segW) {
+        ticks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${H}" stroke="rgba(255,255,255,.05)" stroke-width="0.8"/>`;
+      }
+      tk += 15*60;
+    }
 
     // Arrivées (rouge) et départs (bleu)
     let evs = '';
-    seg.arrivals.forEach(a=>{if(a.ts>=seg.segStart&&a.ts<=seg.segEnd)evs+=`<line x1="${tsX(a.ts)}" y1="0" x2="${tsX(a.ts)}" y2="${H}" stroke="#ef4444" stroke-width="2"/><text x="${tsX(a.ts)}" y="${H-4}" font-size="8" fill="#ef4444" text-anchor="middle">T${a.tripNum}</text>`;});
-    seg.departures.forEach(d2=>{if(d2.ts>=seg.segStart&&d2.ts<=seg.segEnd)evs+=`<line x1="${tsX(d2.ts)}" y1="0" x2="${tsX(d2.ts)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;});
+    seg.arrivals.forEach(a => {
+      const x = parseFloat(tsX(a.ts));
+      if (x >= 0 && x <= segW) {
+        evs += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${H}" stroke="#ef4444" stroke-width="2"/>`;
+        evs += `<text x="${x.toFixed(1)}" y="${H-4}" font-size="8" fill="#ef4444" text-anchor="middle">T${a.tripNum}</text>`;
+      }
+    });
+    seg.departures.forEach(dep => {
+      const x = parseFloat(tsX(dep.ts));
+      if (x >= 0 && x <= segW) {
+        evs += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${H}" stroke="#4f7ef8" stroke-width="1" stroke-dasharray="4,3"/>`;
+      }
+    });
 
     // Labels horaires
-    let lbls='';
-    let lt=Math.ceil(seg.segStart/(30*60))*30*60;
-    while(lt<=seg.segEnd){lbls+=`<text x="${tsX(lt)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;lt+=30*60;}
+    let lbls = '';
+    let lt = Math.ceil(seg.tripStart / (30*60)) * (30*60);
+    while (lt <= seg.tripEnd) {
+      const x = parseFloat(tsX(lt));
+      if (x >= 0 && x <= segW) {
+        lbls += `<text x="${x.toFixed(1)}" y="${H+13}" font-size="9" fill="rgba(255,255,255,.3)" text-anchor="middle">${fmtH(lt)}</text>`;
+      }
+      lt += 30*60;
+    }
 
-    // Label pays en haut
-    const flag = seg.country.flag;
-
-    return `<div style="display:inline-block;vertical-align:top;${si>0?'border-left:2px dashed var(--border2);':''}">
-      <div style="font-size:10px;color:${TYPE_COLORS[item.type]||'#888'};padding:2px 4px;display:flex;align-items:center;gap:4px">
-        <img src="https://flagcdn.com/14x11/${flag}.png" width="14" height="11" style="border-radius:1px" onerror="this.style.display='none'">
+    return `<div style="display:inline-block;vertical-align:top;${si > 0 ? 'border-left:2px dashed rgba(255,255,255,.15);' : ''}padding-left:${si > 0 ? '4px' : '0'}">
+      <div style="font-size:10px;color:${TYPE_COLORS[item.type]||'#888'};padding:2px 4px;display:flex;align-items:center;gap:4px;white-space:nowrap">
+        <img src="https://flagcdn.com/14x11/${seg.country.flag}.png" width="14" height="11" style="border-radius:1px" onerror="this.style.display='none'">
         ${item.name}
       </div>
       <svg viewBox="0 0 ${segW} ${H+16}" width="${segW}" height="${H+16}" style="display:block">
@@ -1321,9 +1365,11 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     </div>`;
   }).join('');
 
+  if (!svgParts.trim()) return '';
+
   return `<div style="margin-bottom:1rem">
     <div class="stock-chart-wrap" style="overflow-x:auto">
-      <div style="display:flex;min-width:300px">${svgs}</div>
+      <div style="display:flex;min-width:300px">${svgParts}</div>
     </div>
   </div>`;
 }
