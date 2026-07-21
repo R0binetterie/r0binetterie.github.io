@@ -1268,24 +1268,24 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     }
     function qY(q){ return (H - (q / RESTOCK) * H).toFixed(1); }
 
-    // Chemin — filtrer les NaN
+    // Chemin SVG depuis les points
+    // pts contient {ts, qty} — on filtre la fenêtre seg.segStart→seg.segEnd
+    const filteredPts = pts.filter(p => p.ts >= seg.segStart - 60 && p.ts <= seg.segEnd + 60);
     let d = '';
-    let started = false;
-    for(let i=0;i<pts.length;i++){
-      const p=pts[i];
+    for(let i=0;i<filteredPts.length;i++){
+      const p=filteredPts[i];
       const x=parseFloat(tsX(p.ts));
       const y=parseFloat(qY(p.qty));
-      if(isNaN(x)||isNaN(y)) continue;
-      if(!started){d+=`M${x},${y}`;started=true;continue;}
-      const prev=pts[i-1];
-      if(prev && p.qty>prev.qty*2&&prev.qty<100){
-        const y0=parseFloat(qY(0));
-        if(!isNaN(y0)) d+=` L${x},${y0} L${x},${y}`;
+      if(isNaN(x)||isNaN(y)||x<-1||x>segW+1) continue;
+      if(d===''){d=`M${Math.max(0,x).toFixed(1)},${y}`;continue;}
+      const prev=filteredPts[i-1];
+      if(prev && p.qty>prev.qty*2 && prev.qty<100){
+        d+=` L${x.toFixed(1)},${qY(0)} L${x.toFixed(1)},${y}`;
       }else{
-        d+=` L${x},${y}`;
+        d+=` L${x.toFixed(1)},${y}`;
       }
     }
-    if(!started) return ''; // skip ce segment si pas de points valides
+    if(!d) d=`M0,${H} L${segW},${H}`; // ligne vide si aucun point
 
     // Ticks TCT
     let ticks='';
