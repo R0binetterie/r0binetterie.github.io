@@ -1227,23 +1227,23 @@ function buildMultiDestChart(run, startTs, endTs, W, H) {
     const country = trip.country || run.country;
     const breakdown = trip.breakdown || run.breakdown;
     const mainItem = breakdown[0];
-    const segEnd = trip.landTs || trip.arriveTs + 30*60;
+    // segEnd = moment du retour à Torn de CE trip spécifique
+    const tripSegEnd = trip.landTs || (trip.returnTs ? trip.returnTs + (trip.tOneWay||30)*60 : trip.arriveTs + 30*60);
 
     if (curCountry && curCountry.code === country.code) {
-      // Même pays → prolonger le segment
-      segments[segments.length-1].segEnd = segEnd;
+      // Même pays consécutif → fusionner les segments
+      segments[segments.length-1].segEnd = tripSegEnd;
       segments[segments.length-1].arrivals.push({ts:trip.arriveTs, tripNum:i+1});
       if(trip.departTs) segments[segments.length-1].departures.push({ts:trip.departTs});
     } else {
-      // Nouveau pays
-      if (curCountry) segments[segments.length-1].segEnd = trip.departTs || trip.arriveTs - (trip.tOneWay||0)*60;
+      // Nouveau pays → nouveau segment
       const segStartTs = trip.startTs || trip.departTs || (trip.arriveTs - (trip.tOneWay||run.tOneWay||30)*60);
       segments.push({
         country, mainItem, breakdown,
         segStart: segStartTs,
-        segEnd,
+        segEnd: tripSegEnd,
         arrivals: [{ts:trip.arriveTs, tripNum:i+1}],
-        departures: (trip.departTs && trip.departTs !== segStartTs) ? [{ts:trip.departTs}] : [],
+        departures: [],
         yataQtyNow: mainItem?.yataQtyNow,
         lastUpdate: trip.lastUpdate || run.lastUpdate,
         yataMap: trip.yataMap || {},
